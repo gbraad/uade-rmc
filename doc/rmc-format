@@ -1,0 +1,42 @@
+== Retro music container (rmc) file format ==
+
+Uses file extension ".rmc".
+
+rmc file is defined by the the following Python
+statement by using bencode serialization:
+
+	bencode([MAGIC, meta, files])
+
+where meta and files are dictionaries, and
+MAGIC = 'rmc\x00\xfb\x13\xf6\x1f\xa2' (9 bytes).
+
+Example:
+>>> bencode(['rmc\x00\xfb\x13\xf6\x1f\xa2', {}, {}])
+'l9:rmc\x00\xfb\x13\xf6\x1f\xa2dedee'
+
+The first 12 bytes of rmc file define a file magic (prefix).
+meta dictionary begins at offset 12 in the serialized form.
+
+meta spec for 'amiga' files:
+
+meta = {'platform': 'amiga',
+       	'subsongs': {INT_KEY: int}, # length in milliseconds
+      	OPTIONAL_KEY('title'): str,
+      	OPTIONAL_KEY('author'): str,
+      	OPTIONAL_KEY('year'): int,
+      	OPTIONAL_KEY('song'): str,
+      	OPTIONAL_KEY('player'): str,
+      	OPTIONAL_KEY('comment'): str,
+       }
+
+The meta spec for 'c64' files should contain STIL information.
+
+'song' and 'player' filenames refer to a file located inside file
+dictionary. If 'player' filename is not found from file dictionary,
+it is looked up from uade's eagleplayer directory.
+
+file spec:
+
+files = {'regularfilename': str,
+      	 'directoryname': {},
+	}
