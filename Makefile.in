@@ -10,6 +10,8 @@ all:	rmc
 rmc:	$(RMCMODULES)
 	$(CC) $(LDFLAGS) -o $@ $(RMCMODULES) -luade
 
+rmc.o:	rmc.c utils.h
+
 %.o:	%.c
 	$(CC) $(CFLAGS) -c $<
 
