@@ -1,0 +1,17 @@
+CC = {CC}
+CFLAGS = -Wall -O2 -g {CFLAGS}
+LDFLAGS = {LDFLAGS}
+PREFIX = {PREFIX}
+
+RMCMODULES = rmc.o
+
+all:	rmc
+
+rmc:	$(RMCMODULES)
+	$(CC) $(LDFLAGS) -o $@ $(RMCMODULES) -luade
+
+%.o:	%.c
+	$(CC) $(CFLAGS) -c $<
+
+clean:	
+	rm -f rmc *.o

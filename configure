@@ -1,0 +1,72 @@
+#!/bin/sh
+
+prefix=/usr/local
+uadeprefix=""
+
+for opt in "$@" ; do
+	case $opt in
+	--prefix=*)
+		prefix=`echo $opt | sed -n 's/--prefix=\(.*\)/\1/p'`
+		;;
+	--package-prefix=*)
+		packageprefix=`echo $opt | sed -n 's/--package-prefix=\(.*\)/\1/p'`
+		;;
+	--uade-prefix=*)
+		uadeprefix=`echo $opt | sed -n 's/--uade-prefix=\(.*\)/\1/p'`
+		;;
+	--home)
+		prefix="$HOME"
+		;;
+	--help)
+		echo ""
+		echo "Valid options are:"
+		echo "--prefix=dir           Install program to prefix 'dir'"
+ 		echo "--package-prefix=dest  Pretend to install to the prefix,"
+		echo "                       but copy files to 'dest/prefix' on make install"
+		echo "--uade-prefix=dir      Use dir as uade prefix. libuade.so should be"
+		echo "                       located under dir/lib."
+		exit
+		;;
+	esac
+done
+
+if test ! -z "$packageprefix" ; then
+    prefix="$packageprefix/$prefix"
+fi
+
+if test -z "$CC" ; then
+    CC=gcc
+fi
+
+function find_uade() {
+    for d in "$uadeprefix" "$prefix" "$HOME" "/usr/local" "/usr" ; do
+	if test -z "$d" ; then continue ; fi
+	if test -e "$d/lib/libuade.so" ; then
+	    echo "$d"
+	    return
+	fi
+    done
+}
+
+uadeprefix=$(find_uade)
+
+if test -z "$uadeprefix" ; then
+    echo "Can not find libuade. You can use --uade-prefix to find libuade's base directory. e.g. --uade-prefix=/foo, where /foo/lib directory exists."
+    exit 1
+fi
+
+LDFLAGS="-L$uadeprefix/lib -Wl,-rpath,$uadeprefix/lib"
+CFLAGS="-I$uadeprefix/include"
+
+sed -e "s|{PREFIX}|$prefix|g" \
+    -e "s|{CC}|$CC|g" \
+    -e "s|{CFLAGS}|$CFLAGS|g" \
+    -e "s|{LDFLAGS}|$LDFLAGS|g" \
+    < Makefile.in > Makefile
+
+echo
+echo "Install path:    $prefix/bin"
+echo "Compiler:        $CC"
+echo "uade prefix:     $uadeprefix"
+echo
+echo "Configure successful"
