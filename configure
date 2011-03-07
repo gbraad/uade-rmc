@@ -2,6 +2,7 @@
 
 prefix=/usr/local
 uadeprefix=""
+typevalidatorprefix=""
 
 for opt in "$@" ; do
 	case $opt in
@@ -14,6 +15,9 @@ for opt in "$@" ; do
 	--uade-prefix=*)
 		uadeprefix=`echo $opt | sed -n 's/--uade-prefix=\(.*\)/\1/p'`
 		;;
+	--typevalidator-prefix=*)
+		typevalidatorprefix=`echo $opt | sed -n 's/--typevalidator-prefix=\(.*\)/\1/p'`
+		;;
 	--home)
 		prefix="$HOME"
 		;;
@@ -25,7 +29,9 @@ for opt in "$@" ; do
 		echo "                       but copy files to 'dest/prefix' on make install"
 		echo "--uade-prefix=dir      Use dir as uade prefix. libuade.so should be"
 		echo "                       located under dir/lib."
-		exit
+		echo "--typevalidator-prefix=dir Use dir as typevalidator prefix."
+		echo "                        libtypevalidator.so should be located under dir/lib."
+		exit 0
 		;;
 	esac
 done
@@ -38,25 +44,39 @@ if test -z "$CC" ; then
     CC=gcc
 fi
 
-function find_uade() {
-    for d in "$uadeprefix" "$prefix" "$HOME" "/usr/local" "/usr" ; do
+function find_lib() {
+    libname="$1"
+    for d in "$uadeprefix" "$typevalidatorprefix" "$prefix" "$HOME" "/usr/local" "/usr" ; do
 	if test -z "$d" ; then continue ; fi
-	if test -e "$d/lib/libuade.so" ; then
+	if test -e "$d/lib/$libname" ; then
 	    echo "$d"
 	    return
 	fi
     done
 }
 
-uadeprefix=$(find_uade)
-
 if test -z "$uadeprefix" ; then
-    echo "Can not find libuade. You can use --uade-prefix to find libuade's base directory. e.g. --uade-prefix=/foo, where /foo/lib directory exists."
-    exit 1
+    uadeprefix=$(find_lib "libuade.so")
+    if test -z "$uadeprefix" ; then
+	echo "Can not find libuade. You can use --uade-prefix to find libuade's base directory. e.g. --uade-prefix=/foo, where /foo/lib directory exists."
+	exit 1
+    fi
 fi
+
+if test -z "$typevalidatorprefix" ; then
+    typevalidatorprefix=$(find_lib "libtypevalidator.so")
+    if test -z "$typevalidatorprefix" ; then
+	echo "Can not find libtypevalidator. You can use --typevalidator-prefix to find libtypevalidator's base directory. e.g. --typevalidator-prefix=/foo, where /foo/lib directory exists."
+	exit 1
+    fi
+fi    
 
 LDFLAGS="-L$uadeprefix/lib -Wl,-rpath,$uadeprefix/lib"
 CFLAGS="-I$uadeprefix/include"
+if test "$typevalidatorprefix" != "$uadeprefix" ; then
+    LDFLAGS="$LDFLAGS -L$typevalidatorprefix/lib -Wl,-rpath,$typevalidatorprefix/lib"
+    CFLAGS="$CFLAGS -I$typevalidatorprefix/include"
+fi
 
 sed -e "s|{PREFIX}|$prefix|g" \
     -e "s|{CC}|$CC|g" \
