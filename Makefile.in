@@ -3,7 +3,7 @@ CFLAGS = -Wall -O2 -g {CFLAGS}
 LDFLAGS = {LDFLAGS}
 PREFIX = {PREFIX}
 
-RMCMODULES = rmc.o
+RMCMODULES = rmc.o utils.o
 
 all:	rmc
 
@@ -11,6 +11,7 @@ rmc:	$(RMCMODULES)
 	$(CC) $(LDFLAGS) -o $@ $(RMCMODULES) -luade
 
 rmc.o:	rmc.c utils.h
+utils.o:	utils.c utils.h
 
 %.o:	%.c
 	$(CC) $(CFLAGS) -c $<
