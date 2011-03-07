@@ -9,6 +9,8 @@
 
 #define FREQUENCY 44100
 
+#define RMC_MAGIC "rmc\x00\xfb\x13\xf6\x1f\xa2"
+
 static long long getmstime(void)
 {
 	struct timeval tv;
@@ -53,12 +55,35 @@ static int write_rmc(int *playtimes, int max, struct uade_file *f,
 		     struct uade_state *state)
 {
 	int sub;
+	struct bencode *list;
+	struct bencode *magic;
+	struct bencode *meta;
+	struct bencode *files;
+	char *data;
+	size_t len;
+
+	list = ben_list();
+	magic = ben_blob(RMC_MAGIC, 9);
+	meta = ben_dict();
+	files = ben_dict();
+
+	if (list == NULL || magic == NULL || meta == NULL || files == NULL)
+		die("Can not allocate memory for bencode\n");
 
 	for (sub = 0; sub <= max; sub++) {
 		if (playtimes[sub] == 0)
 			continue;
 		printf("subsong %d: %d\n", sub, playtimes[sub]);
 	}
+
+	if (ben_list_append(list, magic) || ben_list_append(list, meta) || ben_list_append(list, files))
+		die("Can not append to list\n");
+
+	/*data = ben_encode(&len, list);*/
+	data = NULL;
+	assert(0);
+	if (data == NULL)
+		die("Can not serialize\n");
 
 	return 0;
 }
