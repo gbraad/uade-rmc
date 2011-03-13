@@ -2,7 +2,7 @@
 
 prefix=/usr/local
 uadeprefix=""
-typevalidatorprefix=""
+bencodetoolsprefix=""
 
 for opt in "$@" ; do
 	case $opt in
@@ -15,8 +15,8 @@ for opt in "$@" ; do
 	--uade-prefix=*)
 		uadeprefix=`echo $opt | sed -n 's/--uade-prefix=\(.*\)/\1/p'`
 		;;
-	--typevalidator-prefix=*)
-		typevalidatorprefix=`echo $opt | sed -n 's/--typevalidator-prefix=\(.*\)/\1/p'`
+	--bencode-tools-prefix=*)
+		bencodetoolsprefix=`echo $opt | sed -n 's/--bencode-tools-prefix=\(.*\)/\1/p'`
 		;;
 	--home)
 		prefix="$HOME"
@@ -29,8 +29,8 @@ for opt in "$@" ; do
 		echo "                       but copy files to 'dest/prefix' on make install"
 		echo "--uade-prefix=dir      Use dir as uade prefix. libuade.so should be"
 		echo "                       located under dir/lib."
-		echo "--typevalidator-prefix=dir Use dir as typevalidator prefix."
-		echo "                        libtypevalidator.so should be located under dir/lib."
+		echo "--bencode-tools-prefix=dir Use dir as bencode-tools prefix."
+		echo "                        libbencodetools.so should be located under dir/lib."
 		exit 0
 		;;
 	esac
@@ -46,7 +46,7 @@ fi
 
 function find_lib() {
     libname="$1"
-    for d in "$uadeprefix" "$typevalidatorprefix" "$prefix" "$HOME" "/usr/local" "/usr" ; do
+    for d in "$uadeprefix" "$bencodetoolsprefix" "$prefix" "$HOME" "/usr/local" "/usr" ; do
 	if test -z "$d" ; then continue ; fi
 	if test -e "$d/lib/$libname" ; then
 	    echo "$d"
@@ -63,19 +63,19 @@ if test -z "$uadeprefix" ; then
     fi
 fi
 
-if test -z "$typevalidatorprefix" ; then
-    typevalidatorprefix=$(find_lib "libtypevalidator.so")
-    if test -z "$typevalidatorprefix" ; then
-	echo "Can not find libtypevalidator. You can use --typevalidator-prefix to find libtypevalidator's base directory. e.g. --typevalidator-prefix=/foo, where /foo/lib directory exists."
+if test -z "$bencodetoolsprefix" ; then
+    bencodetoolsprefix=$(find_lib "libbencodetools.so")
+    if test -z "$bencodetoolsprefix" ; then
+	echo "Can not find libbencodetools. You can use --bencode-tools-prefix to find libbencodetool's base directory. e.g. --bencode-tools-prefix=/foo, where /foo/lib directory exists."
 	exit 1
     fi
 fi    
 
 LDFLAGS="-L$uadeprefix/lib -Wl,-rpath,$uadeprefix/lib"
 CFLAGS="-I$uadeprefix/include"
-if test "$typevalidatorprefix" != "$uadeprefix" ; then
-    LDFLAGS="$LDFLAGS -L$typevalidatorprefix/lib -Wl,-rpath,$typevalidatorprefix/lib"
-    CFLAGS="$CFLAGS -I$typevalidatorprefix/include"
+if test "$bencodetoolsprefix" != "$uadeprefix" ; then
+    LDFLAGS="$LDFLAGS -L$bencodetoolsprefix/lib -Wl,-rpath,$bencodetoolsprefix/lib"
+    CFLAGS="$CFLAGS -I$bencodetoolsprefix/include"
 fi
 
 sed -e "s|{PREFIX}|$prefix|g" \
@@ -85,8 +85,9 @@ sed -e "s|{PREFIX}|$prefix|g" \
     < Makefile.in > Makefile
 
 echo
-echo "Install path:    $prefix/bin"
-echo "Compiler:        $CC"
-echo "uade prefix:     $uadeprefix"
+echo "Install path:         $prefix/bin"
+echo "Compiler:             $CC"
+echo "uade prefix:          $uadeprefix"
+echo "bencode-tools prefix: $bencodetoolsprefix"
 echo
 echo "Configure successful"

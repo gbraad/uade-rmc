@@ -8,7 +8,7 @@ RMCMODULES = rmc.o utils.o
 all:	rmc
 
 rmc:	$(RMCMODULES)
-	$(CC) $(LDFLAGS) -o $@ $(RMCMODULES) -luade -ltypevalidator
+	$(CC) $(LDFLAGS) -o $@ $(RMCMODULES) -luade -lbencodetools
 
 rmc.o:	rmc.c utils.h
 utils.o:	utils.c utils.h

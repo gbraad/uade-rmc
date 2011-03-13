@@ -1,7 +1,7 @@
 #include "utils.h"
 
 #include <uade/uade.h>
-#include <typevalidator/bencode.h>
+#include <bencodetools/bencode.h>
 
 #include <getopt.h>
 #include <sys/time.h>
@@ -79,12 +79,12 @@ static int write_rmc(int *playtimes, int max, struct uade_file *f,
 	if (ben_list_append(list, magic) || ben_list_append(list, meta) || ben_list_append(list, files))
 		die("Can not append to list\n");
 
-	/*data = ben_encode(&len, list);*/
-	data = NULL;
-	assert(0);
+	fprintf(stderr, "%s\n", ben_print(list));
+
+	data = ben_encode(&len, list);
 	if (data == NULL)
 		die("Can not serialize\n");
-
+	free(data);
 	return 0;
 }
 
