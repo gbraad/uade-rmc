@@ -51,14 +51,13 @@ static size_t simulate(struct uade_state *state)
 	return -1;
 }
 
-static int write_rmc(int *playtimes, int max, struct uade_file *f,
+static int write_rmc(int *playtimes, int max, struct bencode *files,
 		     struct uade_state *state)
 {
 	int sub;
 	struct bencode *list;
 	struct bencode *magic;
 	struct bencode *meta;
-	struct bencode *files;
 	struct bencode *subsongs;
 	char *data;
 	size_t len;
@@ -66,11 +65,9 @@ static int write_rmc(int *playtimes, int max, struct uade_file *f,
 	list = ben_list();
 	magic = ben_blob(RMC_MAGIC, 9);
 	meta = ben_dict();
-	files = ben_dict();
 	subsongs = ben_dict();
 
-	if (list == NULL || magic == NULL || meta == NULL || files == NULL ||
-	    subsongs == NULL)
+	if (list == NULL || magic == NULL || meta == NULL || subsongs == NULL)
 		die("Can not allocate memory for bencode\n");
 
 	if (ben_dict_set_str_by_str(meta, "platform", "amiga"))
@@ -101,6 +98,8 @@ static int write_rmc(int *playtimes, int max, struct uade_file *f,
 	if (data == NULL)
 		die("Can not serialize\n");
 	free(data);
+
+	ben_free(list);
 	return 0;
 }
 
@@ -118,6 +117,10 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	int sumtime = 0;
 	int nsubsongs = max - min + 1;
 	int *playtimes;
+	struct bencode *files = ben_dict();
+
+	if (files == NULL)
+		die("No memory for file dictionary\n");
 
 	assert(nsubsongs > 0);
 	debug("Converting %s (%d subsongs)\n", f->name, nsubsongs);
@@ -156,7 +159,8 @@ static int convert(struct uade_file *f, struct uade_state *state)
 		simtime = 0;
 	fprintf(stderr, "play time %d ms, simulation time %lld ms, speedup %.1fx\n", sumtime, simtime, ((float) sumtime) / simtime);
 
-	return write_rmc(playtimes, max, f, state);
+
+	return write_rmc(playtimes, max, files, state);
 }
 
 static void initialize_config(struct uade_config *config)
