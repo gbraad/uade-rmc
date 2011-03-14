@@ -59,6 +59,7 @@ static int write_rmc(int *playtimes, int max, struct uade_file *f,
 	struct bencode *magic;
 	struct bencode *meta;
 	struct bencode *files;
+	struct bencode *subsongs;
 	char *data;
 	size_t len;
 
@@ -66,15 +67,30 @@ static int write_rmc(int *playtimes, int max, struct uade_file *f,
 	magic = ben_blob(RMC_MAGIC, 9);
 	meta = ben_dict();
 	files = ben_dict();
+	subsongs = ben_dict();
 
-	if (list == NULL || magic == NULL || meta == NULL || files == NULL)
+	if (list == NULL || magic == NULL || meta == NULL || files == NULL ||
+	    subsongs == NULL)
 		die("Can not allocate memory for bencode\n");
 
+	if (ben_dict_set_str_by_str(meta, "platform", "amiga"))
+		die("Can not set platform\n");
+
 	for (sub = 0; sub <= max; sub++) {
+		struct bencode *key;
+		struct bencode *value;
 		if (playtimes[sub] == 0)
 			continue;
+		key = ben_int(sub);
+		value = ben_int(playtimes[sub]);
+		if (key == NULL || value == NULL)
+			die("Can not allocate memory for key/value\n");
+		if (ben_dict_set(subsongs, key, value))
+			die("Can not insert %s -> %s to dictionary\n", ben_print(key), ben_print(value));
 		printf("subsong %d: %d\n", sub, playtimes[sub]);
 	}
+	if (ben_dict_set_by_str(meta, "subsongs", subsongs))
+		die("Can not add subsong lengths\n");
 
 	if (ben_list_append(list, magic) || ben_list_append(list, meta) || ben_list_append(list, files))
 		die("Can not append to list\n");
