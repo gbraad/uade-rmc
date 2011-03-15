@@ -4,6 +4,7 @@
 #include <bencodetools/bencode.h>
 
 #include <getopt.h>
+#include <libgen.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 
@@ -51,56 +52,88 @@ static size_t simulate(struct uade_state *state)
 	return -1;
 }
 
-static int write_rmc(int *playtimes, int max, struct bencode *files,
-		     struct uade_state *state)
+struct bencode *create_container(void)
 {
-	int sub;
 	struct bencode *list;
 	struct bencode *magic;
 	struct bencode *meta;
 	struct bencode *subsongs;
-	char *data;
-	size_t len;
+	struct bencode *files;
 
 	list = ben_list();
 	magic = ben_blob(RMC_MAGIC, 9);
 	meta = ben_dict();
 	subsongs = ben_dict();
+	files = ben_dict();
 
-	if (list == NULL || magic == NULL || meta == NULL || subsongs == NULL)
+	if (list == NULL || magic == NULL || meta == NULL || subsongs == NULL ||
+	    files == NULL)
 		die("Can not allocate memory for bencode\n");
-
-	if (ben_dict_set_str_by_str(meta, "platform", "amiga"))
-		die("Can not set platform\n");
-
-	for (sub = 0; sub <= max; sub++) {
-		struct bencode *key;
-		struct bencode *value;
-		if (playtimes[sub] == 0)
-			continue;
-		key = ben_int(sub);
-		value = ben_int(playtimes[sub]);
-		if (key == NULL || value == NULL)
-			die("Can not allocate memory for key/value\n");
-		if (ben_dict_set(subsongs, key, value))
-			die("Can not insert %s -> %s to dictionary\n", ben_print(key), ben_print(value));
-		printf("subsong %d: %d\n", sub, playtimes[sub]);
-	}
-	if (ben_dict_set_by_str(meta, "subsongs", subsongs))
-		die("Can not add subsong lengths\n");
 
 	if (ben_list_append(list, magic) || ben_list_append(list, meta) || ben_list_append(list, files))
 		die("Can not append to list\n");
 
-	fprintf(stderr, "%s\n", ben_print(list));
+	if (ben_dict_set_str_by_str(meta, "platform", "amiga"))
+		die("Can not set platform\n");
 
-	data = ben_encode(&len, list);
+	if (ben_dict_set_by_str(meta, "subsongs", subsongs))
+		die("Can not add subsong lengths\n");
+
+	return list;
+}
+
+static void set_playtime(struct bencode *container, int sub, int playtime)
+{
+	struct bencode *key = ben_int(sub);
+	struct bencode *value = ben_int(playtime);
+	struct bencode *meta = ben_list_get(container, 1);
+	struct bencode *subsongs = ben_dict_get_by_str(meta, "subsongs");
+	if (playtime == 0)
+		return;
+	if (key == NULL || value == NULL)
+		die("Can not allocate memory for key/value\n");
+	if (ben_dict_set(subsongs, key, value))
+		die("Can not insert %s -> %s to dictionary\n", ben_print(key), ben_print(value));
+	printf("subsong %d: %d\n", sub, playtime);
+}
+
+static int write_rmc(const struct bencode *container)
+
+{
+	char *data;
+	size_t len;
+	fprintf(stderr, "%s\n", ben_print(container));
+	data = ben_encode(&len, container);
 	if (data == NULL)
 		die("Can not serialize\n");
 	free(data);
-
-	ben_free(list);
 	return 0;
+}
+
+#if 0
+static void set_player_name(struct bencode *meta, const char *fname)
+{
+	struct bencode *bfname;
+	char path[PATH_MAX];
+	snprintf(path, sizeof path, "%s", fname);
+	bfname = ben_str(path);
+	assert(bfname != NULL);
+	if (ben_dict_set_by_str(meta, "player", bfname))
+		die("Can not set player name: %s\n", fname);
+}
+#endif
+
+static void set_format_name(struct bencode *meta, const char *formatname)
+{
+	if (ben_dict_set_str_by_str(meta, "format", formatname))
+		die("Can not set format name: %s\n", formatname);
+}
+
+static void set_info(struct bencode *meta, struct uade_state *state)
+{
+	const struct uade_song_info *info = uade_get_song_info(state);
+	if (info->iscustom)
+		set_format_name(meta, "custom");
 }
 
 static int convert(struct uade_file *f, struct uade_state *state)
@@ -116,16 +149,12 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	int playtime;
 	int sumtime = 0;
 	int nsubsongs = max - min + 1;
-	int *playtimes;
-	struct bencode *files = ben_dict();
-
-	if (files == NULL)
-		die("No memory for file dictionary\n");
+	struct bencode *container = create_container();
+	struct bencode *meta = ben_list_get(container, 1);
+	struct bencode *files = ben_list_get(container, 2);
 
 	assert(nsubsongs > 0);
 	debug("Converting %s (%d subsongs)\n", f->name, nsubsongs);
-
-	playtimes = xcalloc(max + 1, sizeof playtimes[0]);
 
 	uade_stop(state);
 
@@ -142,13 +171,15 @@ static int convert(struct uade_file *f, struct uade_state *state)
 			return -1;
 		}
 
+		set_info(meta, state);
+
 		subsongbytes = simulate(state);
 		if (subsongbytes == -1)
 			return -1;
 
 		playtime = (subsongbytes * 1000) / info->bytespersecond;
 		assert(cur <= max);
-		playtimes[cur] = playtime;
+		set_playtime(container, cur, playtime);
 		sumtime += playtime;
 
 		uade_stop(state);
@@ -160,7 +191,7 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	fprintf(stderr, "play time %d ms, simulation time %lld ms, speedup %.1fx\n", sumtime, simtime, ((float) sumtime) / simtime);
 
 
-	return write_rmc(playtimes, max, files, state);
+	return write_rmc(container);
 }
 
 static void initialize_config(struct uade_config *config)
