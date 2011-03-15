@@ -20,6 +20,23 @@ static long long getmstime(void)
 	return ((long long) tv.tv_sec) * 1000 + tv.tv_usec / 1000;
 }
 
+static size_t xfwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+        size_t ret;
+        size_t written = 0;
+        const char *writeptr = ptr;
+
+        while (written < nmemb) {
+                ret = fwrite(writeptr, size, nmemb - written, stream);
+                if (ret == 0)
+                        break;
+                written += ret;
+                writeptr += size * ret;
+        }
+
+        return written;
+}
+
 static size_t simulate(struct uade_state *state)
 {
 	struct uade_event event;
@@ -97,17 +114,66 @@ static void set_playtime(struct bencode *container, int sub, int playtime)
 	printf("subsong %d: %d\n", sub, playtime);
 }
 
-static int write_rmc(const struct bencode *container)
-
+static int write_rmc(const char *targetfname, const struct bencode *container)
 {
 	char *data;
 	size_t len;
-	fprintf(stderr, "%s\n", ben_print(container));
+	struct bencode *files = ben_list_get(container, 2);
+	size_t pos;
+	struct bencode *key;
+	struct bencode *value;
+	FILE *f;
+	int ret = -1;
+
+	fprintf(stderr, "meta: %s files: ", ben_print(ben_list_get(container, 1)));
+	ben_dict_for_each(key, value, pos, files)
+		fprintf(stderr, "%s ", ben_str_val(key));
+	fprintf(stderr, "\n");
+
 	data = ben_encode(&len, container);
 	if (data == NULL)
 		die("Can not serialize\n");
+
+	f = fopen(targetfname, "wb");
+	if (f != NULL) {
+		if (xfwrite(data, 1, len, f) == len) {
+			ret = 0;
+		} else {
+			fprintf(stderr, "rmc: Can not write all data to %s\n", targetfname);
+			unlink(targetfname);
+		}
+		fclose(f);
+	} else {
+		fprintf(stderr, "rmc: Can not create file %s\n", targetfname);
+	}
+
 	free(data);
-	return 0;
+	return ret;
+}
+
+static void xbasename(char *bname, size_t maxlen, const char *fname)
+{
+	char path[PATH_MAX];
+	snprintf(path, sizeof path, "%s", fname);
+	snprintf(bname, maxlen, "%s", basename(path));
+}
+
+static void xdirname(char *dname, size_t maxlen, const char *fname)
+{
+	char path[PATH_MAX];
+	snprintf(path, sizeof path, "%s", fname);
+	snprintf(dname, maxlen, "%s", dirname(path));
+}
+
+static struct bencode *get_basename(const char *fname)
+{
+	char path[PATH_MAX];
+	struct bencode *bname;
+	xbasename(path, sizeof path, fname);
+	bname = ben_str(path);
+	if (bname == NULL)
+		die("Can not get basename from %s\n", fname);
+	return bname;
 }
 
 #if 0
@@ -116,6 +182,7 @@ static void set_player_name(struct bencode *meta, const char *fname)
 	struct bencode *bfname;
 	char path[PATH_MAX];
 	snprintf(path, sizeof path, "%s", fname);
+	assert(0);
 	bfname = ben_str(path);
 	assert(bfname != NULL);
 	if (ben_dict_set_by_str(meta, "player", bfname))
@@ -123,17 +190,62 @@ static void set_player_name(struct bencode *meta, const char *fname)
 }
 #endif
 
-static void set_format_name(struct bencode *meta, const char *formatname)
+static void set_strstr(struct bencode *d, const char *key, const char *value)
 {
-	if (ben_dict_set_str_by_str(meta, "format", formatname))
-		die("Can not set format name: %s\n", formatname);
+	if (ben_dict_set_str_by_str(d, key, value))
+		die("Can not set %s to %s\n", value, key);
 }
 
 static void set_info(struct bencode *meta, struct uade_state *state)
 {
 	const struct uade_song_info *info = uade_get_song_info(state);
 	if (info->iscustom)
-		set_format_name(meta, "custom");
+		set_strstr(meta, "format", "custom");
+}
+
+static void record_file(struct bencode *container, struct uade_file *f)
+{
+	struct bencode *files = ben_list_get(container, 2);
+	struct bencode *file = ben_blob(f->data, f->size);
+	if (file == NULL || files == NULL)
+		die("Unable to get container or create a blob: %s\n", f->name);
+	ben_dict_set(files, get_basename(f->name), file);
+}
+
+static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
+{
+	char dname[PATH_MAX];
+	char bname[PATH_MAX];
+	char newbname[PATH_MAX];
+	const struct uade_song_info *info = uade_get_song_info(state);
+	int isprefix = 0;
+	int ispostfix = 0;
+	char *t = NULL;
+
+	xdirname(dname, sizeof dname, info->modulefname);
+	xbasename(bname, sizeof bname, info->modulefname);
+
+	if (info->ext[0]) {
+		size_t extlen = strlen(info->ext);
+		isprefix = (strncasecmp(bname, info->ext, extlen) == 0) && (bname[extlen] == '.');
+		t = strrchr(bname, '.');
+		ispostfix = (t != NULL) && (strcasecmp(t + 1, info->ext) == 0);
+	}
+
+	if (ispostfix) {
+		t = strrchr(bname, '.');
+		assert(t != NULL);
+		*t = 0;
+		snprintf(newbname, sizeof newbname, "%s.rmc", bname);
+	} else if (isprefix) {
+		t = strchr(bname, '.');
+		assert(t != NULL);
+		snprintf(newbname, sizeof newbname, "%s.rmc", t + 1);
+	} else {
+		snprintf(newbname, sizeof newbname, "%s.rmc", bname);
+	}
+
+	snprintf(name, maxlen, "%s/%s", dname, newbname);
 }
 
 static int convert(struct uade_file *f, struct uade_state *state)
@@ -151,12 +263,14 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	int nsubsongs = max - min + 1;
 	struct bencode *container = create_container();
 	struct bencode *meta = ben_list_get(container, 1);
-	struct bencode *files = ben_list_get(container, 2);
+	char targetname[PATH_MAX];
 
 	assert(nsubsongs > 0);
 	debug("Converting %s (%d subsongs)\n", f->name, nsubsongs);
 
 	uade_stop(state);
+
+	record_file(container, f);
 
 	starttime = getmstime();
 
@@ -165,17 +279,17 @@ static int convert(struct uade_file *f, struct uade_state *state)
 		if (ret < 0) {
 			uade_cleanup_state(state);
 			warning("Fatal error in uade state when initializing %s\n", f->name);
-			return -1;
+			goto error;
 		} else if (ret == 0) {
 			debug("%s is not playable\n", f->name);
-			return -1;
+			goto error;
 		}
 
 		set_info(meta, state);
 
 		subsongbytes = simulate(state);
 		if (subsongbytes == -1)
-			return -1;
+			goto error;
 
 		playtime = (subsongbytes * 1000) / info->bytespersecond;
 		assert(cur <= max);
@@ -190,8 +304,17 @@ static int convert(struct uade_file *f, struct uade_state *state)
 		simtime = 0;
 	fprintf(stderr, "play time %d ms, simulation time %lld ms, speedup %.1fx\n", sumtime, simtime, ((float) sumtime) / simtime);
 
+	get_targetname(targetname, sizeof targetname, state);
 
-	return write_rmc(container);
+	ret = write_rmc(targetname, container);
+
+	ben_free(container);
+
+	return ret;
+
+error:
+	ben_free(container);
+	return -1;
 }
 
 static void initialize_config(struct uade_config *config)
