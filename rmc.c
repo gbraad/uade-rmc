@@ -37,6 +37,12 @@ static size_t xfwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
         return written;
 }
 
+static void set_str_by_str(struct bencode *d, const char *key, const char *value)
+{
+	if (ben_dict_set_str_by_str(d, key, value))
+		die("Can not set %s to %s\n", value, key);
+}
+
 static size_t simulate(struct uade_state *state)
 {
 	struct uade_event event;
@@ -90,8 +96,7 @@ struct bencode *create_container(void)
 	if (ben_list_append(list, magic) || ben_list_append(list, meta) || ben_list_append(list, files))
 		die("Can not append to list\n");
 
-	if (ben_dict_set_str_by_str(meta, "platform", "amiga"))
-		die("Can not set platform\n");
+	set_str_by_str(meta, "platform", "amiga");
 
 	if (ben_dict_set_by_str(meta, "subsongs", subsongs))
 		die("Can not add subsong lengths\n");
@@ -111,7 +116,7 @@ static void set_playtime(struct bencode *container, int sub, int playtime)
 		die("Can not allocate memory for key/value\n");
 	if (ben_dict_set(subsongs, key, value))
 		die("Can not insert %s -> %s to dictionary\n", ben_print(key), ben_print(value));
-	printf("subsong %d: %d\n", sub, playtime);
+	fprintf(stderr, "subsong %d: %.3fs\n", sub, playtime / 1000.0);
 }
 
 static int write_rmc(const char *targetfname, const struct bencode *container)
@@ -176,31 +181,11 @@ static struct bencode *get_basename(const char *fname)
 	return bname;
 }
 
-#if 0
-static void set_player_name(struct bencode *meta, const char *fname)
-{
-	struct bencode *bfname;
-	char path[PATH_MAX];
-	snprintf(path, sizeof path, "%s", fname);
-	assert(0);
-	bfname = ben_str(path);
-	assert(bfname != NULL);
-	if (ben_dict_set_by_str(meta, "player", bfname))
-		die("Can not set player name: %s\n", fname);
-}
-#endif
-
-static void set_strstr(struct bencode *d, const char *key, const char *value)
-{
-	if (ben_dict_set_str_by_str(d, key, value))
-		die("Can not set %s to %s\n", value, key);
-}
-
 static void set_info(struct bencode *meta, struct uade_state *state)
 {
 	const struct uade_song_info *info = uade_get_song_info(state);
 	if (info->iscustom)
-		set_strstr(meta, "format", "custom");
+		set_str_by_str(meta, "format", "custom");
 }
 
 static void record_file(struct bencode *container, struct uade_file *f)
@@ -209,7 +194,8 @@ static void record_file(struct bencode *container, struct uade_file *f)
 	struct bencode *file = ben_blob(f->data, f->size);
 	if (file == NULL || files == NULL)
 		die("Unable to get container or create a blob: %s\n", f->name);
-	ben_dict_set(files, get_basename(f->name), file);
+	if (ben_dict_set(files, get_basename(f->name), file))
+		die("Unable to insert file: %s\n", f->name);
 }
 
 static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
@@ -266,7 +252,10 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	char targetname[PATH_MAX];
 
 	assert(nsubsongs > 0);
-	debug("Converting %s (%d subsongs)\n", f->name, nsubsongs);
+
+	get_targetname(targetname, sizeof targetname, state);
+
+	debug("Converting %s to %s (%d subsongs)\n", f->name, targetname, nsubsongs);
 
 	uade_stop(state);
 
@@ -303,8 +292,6 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	if (simtime < 0)
 		simtime = 0;
 	fprintf(stderr, "play time %d ms, simulation time %lld ms, speedup %.1fx\n", sumtime, simtime, ((float) sumtime) / simtime);
-
-	get_targetname(targetname, sizeof targetname, state);
 
 	ret = write_rmc(targetname, container);
 
