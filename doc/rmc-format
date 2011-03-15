@@ -21,11 +21,14 @@ meta spec for 'amiga' files:
 
 meta = {'platform': 'amiga',
        	'subsongs': {INT_KEY: int}, # length in milliseconds
+	OPTIONAL_KEY('format'): str,
+	OPTIONAL_KEY('subformat'): str,
       	OPTIONAL_KEY('title'): str,
       	OPTIONAL_KEY('author'): str,
       	OPTIONAL_KEY('year'): int,
       	OPTIONAL_KEY('song'): str,
       	OPTIONAL_KEY('player'): str,
+	OPTIONAL_KEY('epoption'): {}, # a dictionary of eagleplayer options
       	OPTIONAL_KEY('comment'): str,
        }
 
@@ -35,7 +38,30 @@ The meta spec for 'c64' files should contain STIL information.
 dictionary. If 'player' filename is not found from file dictionary,
 it is looked up from uade's eagleplayer directory.
 
-file spec:
+Optional field 'format' refers to the name of the format.  Usually the
+format can be inferred from the file. If the format can not be
+inferred, a policy decision has to be made. The policy should be documented
+here. One alternative for format name is the value from eagleplayer's
+PlayerName field. Note, the PlayerName field may not exist or it may be
+ambiguous. Following values have been defined explicitly for 'format' field
+so far:
+
+* 'custom' for custom songs
+* 'Protracker and family' for Protracker, Soundtracker and Noisetracker variants
+
+The goal is to make as little policy as possible.
+
+'subformat' field specifies the format more exactly. This is often not
+required. For example, if format == 'Protracker and family',
+subformat can be 'Protracker 1.0c'. Specifying subformat is almost always
+a manual operation, not inferred by the rmc tool.
+
+'epoption' is a dictionary of eagleplayer options. These are mostly the
+options supported by uade. For example:	epoption['timer'] == 'vblank'
+informs the player that vertical blanking interrupt timing should be used.
+This may override CIA timer.
+
+File spec:
 
 files = {'regularfilename': str,
       	 'directoryname': {},
