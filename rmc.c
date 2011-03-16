@@ -184,7 +184,7 @@ static struct bencode *get_basename(const char *fname)
 static void set_info(struct bencode *meta, struct uade_state *state)
 {
 	const struct uade_song_info *info = uade_get_song_info(state);
-	if (info->iscustom)
+	if (info->detectioninfo.custom)
 		set_str_by_str(meta, "format", "custom");
 }
 
@@ -204,6 +204,7 @@ static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
 	char bname[PATH_MAX];
 	char newbname[PATH_MAX];
 	const struct uade_song_info *info = uade_get_song_info(state);
+	const char *ext = info->detectioninfo.ext;
 	int isprefix = 0;
 	int ispostfix = 0;
 	char *t = NULL;
@@ -211,11 +212,11 @@ static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
 	xdirname(dname, sizeof dname, info->modulefname);
 	xbasename(bname, sizeof bname, info->modulefname);
 
-	if (info->ext[0]) {
-		size_t extlen = strlen(info->ext);
-		isprefix = (strncasecmp(bname, info->ext, extlen) == 0) && (bname[extlen] == '.');
+	if (ext[0]) {
+		size_t extlen = strlen(ext);
+		isprefix = (strncasecmp(bname, ext, extlen) == 0) && (bname[extlen] == '.');
 		t = strrchr(bname, '.');
-		ispostfix = (t != NULL) && (strcasecmp(t + 1, info->ext) == 0);
+		ispostfix = (t != NULL) && (strcasecmp(t + 1, ext) == 0);
 	}
 
 	if (ispostfix) {
