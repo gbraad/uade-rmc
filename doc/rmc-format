@@ -10,12 +10,16 @@ statement by using bencode serialization:
 where meta and files are dictionaries, and
 MAGIC = 'rmc\x00\xfb\x13\xf6\x1f\xa2' (9 bytes).
 
-Example:
+The first 12 bytes of rmc file define a file magic (prefix):
+
+    'l9:rmc\x00\xfb\x13\xf6\x1f\xa2'
+
+Meta dictionary begins at offset 12 in RMC file.
+
+Example in Python syntax:
+
 >>> bencode(['rmc\x00\xfb\x13\xf6\x1f\xa2', {}, {}])
 'l9:rmc\x00\xfb\x13\xf6\x1f\xa2dedee'
-
-The first 12 bytes of rmc file define a file magic (prefix).
-meta dictionary begins at offset 12 in the serialized form.
 
 meta spec for 'amiga' files:
 
