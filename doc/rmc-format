@@ -38,8 +38,12 @@ meta = {'platform': 'amiga',
 
 The meta spec for 'c64' files should contain STIL information.
 
-'song' and 'player' filenames refer to a file located inside file
-dictionary. If 'player' filename is not found from file dictionary,
+'song' and 'player' filenames refer to a file located inside files
+dictionary. 'song' is the name of the file to be played. If there is
+only one file in the files dictionary, it is assumed to be the song
+and this field is unnecessary.
+'player' referes to the file name of the eagleplayer that should play the song.
+If 'player' filename is not found from file dictionary,
 it is looked up from uade's eagleplayer directory.
 
 Optional field 'format' refers to the name of the format.  Usually the
