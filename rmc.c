@@ -188,6 +188,60 @@ static void set_info(struct bencode *meta, struct uade_state *state)
 		set_str_by_str(meta, "format", "custom");
 }
 
+struct uade_file *collect_files(const char *name, const char *playerdir,
+				void *context, struct uade_state *state)
+{
+	char dirname[PATH_MAX];
+	char path[PATH_MAX];
+	char *separator;
+	size_t pos;
+	const struct uade_song_info *info = uade_get_song_info(state);
+	struct bencode *container = context;
+	struct uade_file *oldfile;
+	struct uade_file *f = uade_load_amiga_file(name, playerdir, state);
+	if (f == NULL)
+		return NULL;
+
+	fprintf(stderr, "Trying to collect %s\n", name);
+
+	/* Do not collect file names with ':' (for example, ENV:Foo) */
+	separator = strchr(name, ':');
+	if (separator != NULL)
+		return f;
+
+	if (strchr(info->modulefname, '/')) {
+		xdirname(dirname, sizeof dirname, info->modulefname);
+	} else {
+		dirname[0] = 0;
+	}
+
+	if (memcmp(dirname, name, strlen(dirname)) != 0) {
+		fprintf(stderr, "Ignoring file which does not have the same path prefix as the song file. File to be loaded: %s Song file: %s\n", name, info->modulefname);
+		return f;
+	}
+
+	pos = strlen(dirname);
+	while (name[pos] == '/')
+		pos++;
+	assert(name[pos] != '/');
+
+	snprintf(path, sizeof path, "%s", name + pos);
+	/* path is now relative to the song file */
+	assert(strlen(path) > 0);
+	fprintf(stderr, "Shortened path name is %s\n", path);
+
+	oldfile = uade_rmc_get_file(container, path);
+	if (oldfile != NULL) {
+		fprintf(stderr, "File already exists, not recording: %s\n", path);
+		return f;
+	}
+
+	if (uade_rmc_record_file(container, path, f->data, f->size))
+		die("Failed to record %s\n", name);
+
+	return f;
+}
+
 static void record_file(struct bencode *container, struct uade_file *f)
 {
 	struct bencode *files = ben_list_get(container, 2);
@@ -235,6 +289,15 @@ static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
 	snprintf(name, maxlen, "%s/%s", dname, newbname);
 }
 
+static void finalize(struct bencode *container, struct uade_file *f)
+{
+	struct bencode *meta = ben_list_get(container, 1);
+	if (ben_dict_len(meta) == 1)
+		return;
+	if (ben_dict_set_by_str(meta, "song", get_basename(f->name)))
+		die("Can not set song name to be played\n");
+}
+
 static int convert(struct uade_file *f, struct uade_state *state)
 {
 	const struct uade_song_info *info = uade_get_song_info(state);
@@ -261,6 +324,8 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	uade_stop(state);
 
 	record_file(container, f);
+
+	uade_set_amiga_loader(collect_files, container, state);
 
 	starttime = getmstime();
 
@@ -294,15 +359,17 @@ static int convert(struct uade_file *f, struct uade_state *state)
 		simtime = 0;
 	fprintf(stderr, "play time %d ms, simulation time %lld ms, speedup %.1fx\n", sumtime, simtime, ((float) sumtime) / simtime);
 
+	finalize(container, f);
+
 	ret = write_rmc(targetname, container);
-
-	ben_free(container);
-
-	return ret;
+	goto exit;
 
 error:
+	ret = -1;
+exit:
+	uade_set_amiga_loader(NULL, NULL, state);
 	ben_free(container);
-	return -1;
+	return ret;
 }
 
 static void initialize_config(struct uade_config *config)
@@ -343,6 +410,11 @@ int main(int argc, char *argv[])
 		struct uade_file *f = uade_file_load(argv[i]);
 		if (f == NULL) {
 			fprintf(stderr, "Can not open %s\n", argv[i]);
+			continue;
+		}
+
+		if (uade_is_rmc(f->data, f->size)) {
+			fprintf(stderr, "Won't convert RMC again: %s\n", f->name);
 			continue;
 		}
 
