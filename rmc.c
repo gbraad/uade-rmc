@@ -330,6 +330,9 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	starttime = getmstime();
 
 	for (cur = min; cur <= max; cur++) {
+		if (nsubsongs > 1)
+			fprintf(stderr, "Converting subsong %d / %d\n", cur, max);
+
 		ret = uade_play_from_buffer(f->name, f->data, f->size, cur, state);
 		if (ret < 0) {
 			uade_cleanup_state(state);
