@@ -119,20 +119,33 @@ static void set_playtime(struct bencode *container, int sub, int playtime)
 	fprintf(stderr, "Subsong %d: %.3fs\n", sub, playtime / 1000.0);
 }
 
+static void print_dict_keys(const struct bencode *files, const char *oldprefix)
+{
+	size_t pos;
+	struct bencode *key;
+	struct bencode *value;
+	char prefix[PATH_MAX];
+
+	ben_dict_for_each(key, value, pos, files) {
+		if (ben_is_dict(value)) {
+			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix, ben_str_val(key));
+			print_dict_keys(value, prefix);
+		}
+		else
+			fprintf(stderr, "%s%s ", oldprefix, ben_str_val(key));
+	}
+}
+
 static int write_rmc(const char *targetfname, const struct bencode *container)
 {
 	char *data;
 	size_t len;
 	struct bencode *files = ben_list_get(container, 2);
-	size_t pos;
-	struct bencode *key;
-	struct bencode *value;
 	FILE *f;
 	int ret = -1;
 
 	fprintf(stderr, "meta: %s files: ", ben_print(ben_list_get(container, 1)));
-	ben_dict_for_each(key, value, pos, files)
-		fprintf(stderr, "%s ", ben_str_val(key));
+	print_dict_keys(files, "");
 	fprintf(stderr, "\n");
 
 	data = ben_encode(&len, container);
