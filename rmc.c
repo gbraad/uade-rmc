@@ -10,7 +10,7 @@
 
 #define FREQUENCY 44100
 
-#define RMC_MAGIC "rmc\x00\xfb\x13\xf6\x1f\xa2"
+static int subsongtimeout = -1;
 
 static long long getmstime(void)
 {
@@ -116,7 +116,7 @@ static void set_playtime(struct bencode *container, int sub, int playtime)
 		die("Can not allocate memory for key/value\n");
 	if (ben_dict_set(subsongs, key, value))
 		die("Can not insert %s -> %s to dictionary\n", ben_print(key), ben_print(value));
-	fprintf(stderr, "subsong %d: %.3fs\n", sub, playtime / 1000.0);
+	fprintf(stderr, "Subsong %d: %.3fs\n", sub, playtime / 1000.0);
 }
 
 static int write_rmc(const char *targetfname, const struct bencode *container)
@@ -383,8 +383,21 @@ static void initialize_config(struct uade_config *config)
 	uade_config_set_option(config, UC_FREQUENCY, buf);
 	uade_config_set_option(config, UC_ENABLE_TIMEOUTS, NULL);
 	uade_config_set_option(config, UC_SILENCE_TIMEOUT_VALUE, "20");
-	uade_config_set_option(config, UC_SUBSONG_TIMEOUT_VALUE, "512");
+
+	snprintf(buf, sizeof buf, "%d", subsongtimeout);
+	uade_config_set_option(config, UC_SUBSONG_TIMEOUT_VALUE, buf);
+
 	uade_config_set_option(config, UC_TIMEOUT_VALUE, "-1");
+}
+
+static void print_usage(void)
+{
+	printf(
+"Usage:\n"
+"\n"
+"-h      Print help\n"
+"-w t    Set subsong timeout to be t seconds\n"
+		);
 }
 
 int main(int argc, char *argv[])
@@ -394,14 +407,22 @@ int main(int argc, char *argv[])
 	struct uade_state *state = NULL;
 	int exitval = 0;
 	struct uade_config config;
+	char *end;
 
 	while (1) {
-		ret = getopt(argc, argv, "d");
+		ret = getopt(argc, argv, "hw:");
 		if (ret  < 0)
 			break;
 		switch (ret) {
-		case 'd':
-			die("-d not implemented\n");
+		case 'h':
+			print_usage();
+			exit(0);
+		case 'w':
+			/* Set subsong timeout */
+			subsongtimeout = strtol(optarg, &end, 10);
+			if (*end != 0)
+				die("Invalid timeout: %s\n", optarg);
+			break;
 		default:
 			die("Unknown option: %c\n", optopt);
 		}
