@@ -84,7 +84,7 @@ struct bencode *create_container(void)
 	struct bencode *files;
 
 	list = ben_list();
-	magic = ben_blob(RMC_MAGIC, 9);
+	magic = ben_blob(RMC_MAGIC, RMC_MAGIC_LEN);
 	meta = ben_dict();
 	subsongs = ben_dict();
 	files = ben_dict();
