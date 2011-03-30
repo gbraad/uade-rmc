@@ -10,7 +10,7 @@
 
 #define FREQUENCY 44100
 
-static int subsongtimeout = -1;
+static int subsongtimeout = 512;
 
 static long long getmstime(void)
 {
