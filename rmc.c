@@ -418,6 +418,7 @@ int main(int argc, char *argv[])
 
 		if (uade_is_rmc(f->data, f->size)) {
 			fprintf(stderr, "Won't convert RMC again: %s\n", f->name);
+			uade_file_free(f);
 			continue;
 		}
 
@@ -430,10 +431,10 @@ int main(int argc, char *argv[])
 		if (ret < 0) {
 			uade_cleanup_state(state);
 			state = NULL;
-			warning("Fatal error in uade state when initializing %s\n", argv[i]);
+			warning("Error in uade state when initializing %s\n", argv[i]);
 			goto nextfile;
 		} else if (ret == 0) {
-			debug("%s is not playable\n", argv[i]);
+			debug("%s is not playable (convertable)\n", argv[i]);
 			goto nextfile;
 		}
 
