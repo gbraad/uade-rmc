@@ -413,37 +413,16 @@ static void print_usage(void)
 		);
 }
 
-int main(int argc, char *argv[])
+static int put_files_into_container(int i, int argc, char *argv[])
 {
 	int ret;
-	int i;
 	struct uade_state *state = NULL;
 	int exitval = 0;
 	struct uade_config config;
-	char *end;
-
-	while (1) {
-		ret = getopt(argc, argv, "hw:");
-		if (ret  < 0)
-			break;
-		switch (ret) {
-		case 'h':
-			print_usage();
-			exit(0);
-		case 'w':
-			/* Set subsong timeout */
-			subsongtimeout = strtol(optarg, &end, 10);
-			if (*end != 0)
-				die("Invalid timeout: %s\n", optarg);
-			break;
-		default:
-			die("Unknown option: %c\n", optopt);
-		}
-	}
 
 	initialize_config(&config);
 
-	for (i = optind; i < argc; i++) {
+	for (; i < argc; i++) {
 		struct uade_file *f = uade_file_load(argv[i]);
 		if (f == NULL) {
 			fprintf(stderr, "Can not open %s\n", argv[i]);
@@ -482,5 +461,33 @@ int main(int argc, char *argv[])
 
 	/* state can be NULL */
 	uade_cleanup_state(state);
+
 	return exitval;
+}
+
+int main(int argc, char *argv[])
+{
+	char *end;
+	int ret;
+
+	while (1) {
+		ret = getopt(argc, argv, "hw:");
+		if (ret  < 0)
+			break;
+		switch (ret) {
+		case 'h':
+			print_usage();
+			exit(0);
+		case 'w':
+			/* Set subsong timeout */
+			subsongtimeout = strtol(optarg, &end, 10);
+			if (*end != 0)
+				die("Invalid timeout: %s\n", optarg);
+			break;
+		default:
+			die("Unknown option: %c\n", optopt);
+		}
+	}
+
+	return put_files_into_container(optind, argc, argv);
 }
