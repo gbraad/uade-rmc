@@ -1,0 +1,4 @@
+* Implement command line option to force a given eagleplayer. Preferably the
+  same syntax as with uade123. E.g. Do the conversion with:
+
+      rmc -P my-eagleplayer songname.

@@ -3,13 +3,16 @@
 #include <uade/uade.h>
 #include <bencodetools/bencode.h>
 
+#include <assert.h>
 #include <errno.h>
 #include <getopt.h>
 #include <libgen.h>
+#include <string.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #define FREQUENCY 44100
 
@@ -48,34 +51,29 @@ static void set_str_by_str(struct bencode *d, const char *key, const char *value
 
 static size_t simulate(struct uade_state *state)
 {
-	struct uade_event event;
+	char buf[4096];
 	size_t nbytes = 0;
 
-	while (1) {
-		if (uade_get_event(&event, state)) {
-			fprintf(stderr, "uade_get_event(): error!\n");
+	while (nbytes == 0) {
+		struct uade_notification n;
+		ssize_t ret = uade_read(buf, sizeof buf, state);
+		if (ret < 0) {
+			fprintf(stderr, "Playback error.\n");
+			nbytes = -1;
+			break;
+		} else if (ret == 0) {
+			nbytes = -1;
 			break;
 		}
 
-		switch (event.type) {
-		case UADE_EVENT_EAGAIN:
-			break;
-		case UADE_EVENT_DATA:
-			nbytes += event.data.size;
-			break;
-		case UADE_EVENT_MESSAGE:
-			break;
-		case UADE_EVENT_SONG_END:
-			if (!event.songend.happy) {
-				nbytes = -1;
-				fprintf(stderr, "bad song end: %s\n", event.songend.reason);
-			}
-			return nbytes;
-		default:
-			die("uade_get_event returned %s which is not handled.\n", uade_event_name(&event));
+		while (uade_read_notification(&n, state)) {
+			if (n.type == UADE_NOTIFICATION_SONG_END)
+				nbytes = n.song_end.subsongbytes;
+			uade_cleanup_notification(&n);
 		}
 	}
-	return -1;
+
+	return nbytes;
 }
 
 struct bencode *create_container(void)
@@ -284,7 +282,8 @@ static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
 
 	if (ext[0]) {
 		size_t extlen = strlen(ext);
-		isprefix = (strncasecmp(bname, ext, extlen) == 0) && (bname[extlen] == '.');
+		isprefix = (strncasecmp(bname, ext, extlen) == 0) &&
+			   (bname[extlen] == '.');
 		t = strrchr(bname, '.');
 		ispostfix = (t != NULL) && (strcasecmp(t + 1, ext) == 0);
 	}
@@ -346,13 +345,19 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	starttime = getmstime();
 
 	for (cur = min; cur <= max; cur++) {
-		if (nsubsongs > 1)
-			fprintf(stderr, "Converting subsong %d / %d\n", cur, max);
+		int bytespersecond = uade_get_sampling_rate(state) *
+			UADE_BYTES_PER_FRAME;
 
-		ret = uade_play_from_buffer(f->name, f->data, f->size, cur, state);
+		if (nsubsongs > 1)
+			fprintf(stderr, "Converting subsong %d / %d\n",
+				cur, max);
+
+		ret = uade_play_from_buffer(f->name, f->data, f->size, cur,
+					    state);
 		if (ret < 0) {
 			uade_cleanup_state(state);
-			warning("Fatal error in uade state when initializing %s\n", f->name);
+			warning("Fatal error in uade state when initializing "
+				"%s\n", f->name);
 			goto error;
 		} else if (ret == 0) {
 			debug("%s is not playable\n", f->name);
@@ -365,7 +370,7 @@ static int convert(struct uade_file *f, struct uade_state *state)
 		if (subsongbytes == -1)
 			goto error;
 
-		playtime = (subsongbytes * 1000) / info->bytespersecond;
+		playtime = (subsongbytes * 1000) / bytespersecond;
 		assert(cur <= max);
 		set_playtime(container, cur, playtime);
 		sumtime += playtime;
@@ -422,9 +427,12 @@ static int put_files_into_container(int i, int argc, char *argv[])
 	int ret;
 	struct uade_state *state = NULL;
 	int exitval = 0;
-	struct uade_config config;
+	struct uade_config *config = uade_new_config();
 
-	initialize_config(&config);
+	if (config == NULL)
+		die("Could not allocate memory for config\n");
+
+	initialize_config(config);
 
 	for (; i < argc; i++) {
 		struct uade_file *f = uade_file_load(argv[i]);
@@ -440,7 +448,7 @@ static int put_files_into_container(int i, int argc, char *argv[])
 		}
 
 		if (state == NULL)
-			state = uade_new_state(&config, NULL);
+			state = uade_new_state(config);
 		if (state == NULL)
 			die("Can not initialize uade state\n");
 
