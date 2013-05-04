@@ -268,6 +268,8 @@ struct uade_file *collect_files(const char *name, const char *playerdir,
 
 	oldfile = uade_rmc_get_file(container, path);
 	if (oldfile != NULL) {
+		uade_file_free(oldfile);
+		oldfile = NULL;
 		info("File already exists, not recording: %s\n", path);
 		return f;
 	}
