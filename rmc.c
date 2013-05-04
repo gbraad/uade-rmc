@@ -17,7 +17,7 @@
 
 #define FREQUENCY 44100
 
-static int subsongtimeout = 512;
+static int subsong_timeout = 512;
 static int delete_after_packing = 0;
 static int recursive_mode = 1;
 static int overwrite_mode = 1;
@@ -60,12 +60,13 @@ static void set_str_by_str(struct bencode *d, const char *key, const char *value
 		die("Can not set %s to %s\n", value, key);
 }
 
+/* Simulate one subsong, and return the number of bytes simulated */
 static size_t simulate(struct uade_state *state)
 {
 	char buf[4096];
 	size_t nbytes = 0;
 
-	while (nbytes == 0) {
+	while (1) {
 		struct uade_notification n;
 		ssize_t ret = uade_read(buf, sizeof buf, state);
 		if (ret < 0) {
@@ -73,13 +74,22 @@ static size_t simulate(struct uade_state *state)
 			nbytes = -1;
 			break;
 		} else if (ret == 0) {
-			nbytes = -1;
 			break;
 		}
 
+		nbytes += ret;
+
 		while (uade_read_notification(&n, state)) {
-			if (n.type == UADE_NOTIFICATION_SONG_END)
+			if (n.type == UADE_NOTIFICATION_SONG_END) {
+				/*
+				 * Note, we might not ever get here, because
+				 * the eagleplayer may never signal a song end.
+				 * That is why we sum up the bytes read
+				 */
 				nbytes = n.song_end.subsongbytes;
+				uade_cleanup_notification(&n);
+				return nbytes;
+			}
 			uade_cleanup_notification(&n);
 		}
 	}
@@ -474,7 +484,7 @@ static void initialize_config(struct uade_config *config)
 	uade_config_set_option(config, UC_ENABLE_TIMEOUTS, NULL);
 	uade_config_set_option(config, UC_SILENCE_TIMEOUT_VALUE, "20");
 
-	snprintf(buf, sizeof buf, "%d", subsongtimeout);
+	snprintf(buf, sizeof buf, "%d", subsong_timeout);
 	uade_config_set_option(config, UC_SUBSONG_TIMEOUT_VALUE, buf);
 
 	uade_config_set_option(config, UC_TIMEOUT_VALUE, "-1");
@@ -823,7 +833,7 @@ int main(int argc, char *argv[])
 			break;
 		case 'w':
 			/* Set subsong timeout */
-			subsongtimeout = strtol(optarg, &end, 10);
+			subsong_timeout = strtol(optarg, &end, 10);
 			if (*end != 0)
 				die("Invalid timeout: %s\n", optarg);
 			break;
