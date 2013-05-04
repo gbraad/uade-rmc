@@ -541,8 +541,10 @@ static int put_files_into_container(int i, int argc, char *argv[])
 
 	for (; i < argc; i++) {
 		struct stat st;
-		if (stat(argv[i], &st))
-			die("Can not stat %s\n", argv[i]);
+		if (stat(argv[i], &st)) {
+			info("Can not stat %s. Skipping.\n", argv[i]);
+			continue;
+		}
 		if (S_ISDIR(st.st_mode)) {
 			ret = ftw(argv[i], directory_traverse_fn, 500);
 			if (ret != 0)
