@@ -17,6 +17,12 @@
 #define FREQUENCY 44100
 
 static int subsongtimeout = 512;
+static int delete_after_packing = 0;
+
+struct collection_context {
+	struct bencode *container;
+	struct bencode *filelist;
+};
 
 static long long getmstime(void)
 {
@@ -58,7 +64,7 @@ static size_t simulate(struct uade_state *state)
 		struct uade_notification n;
 		ssize_t ret = uade_read(buf, sizeof buf, state);
 		if (ret < 0) {
-			fprintf(stderr, "Playback error.\n");
+			info("Playback error.\n");
 			nbytes = -1;
 			break;
 		} else if (ret == 0) {
@@ -117,7 +123,7 @@ static void set_playtime(struct bencode *container, int sub, int playtime)
 		die("Can not allocate memory for key/value\n");
 	if (ben_dict_set(subsongs, key, value))
 		die("Can not insert %s -> %s to dictionary\n", ben_print(key), ben_print(value));
-	fprintf(stderr, "Subsong %d: %.3fs\n", sub, playtime / 1000.0);
+	info("Subsong %d: %.3fs\n", sub, playtime / 1000.0);
 }
 
 static void print_dict_keys(const struct bencode *files, const char *oldprefix)
@@ -132,7 +138,7 @@ static void print_dict_keys(const struct bencode *files, const char *oldprefix)
 			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix, ben_str_val(key));
 			print_dict_keys(value, prefix);
 		} else {
-			fprintf(stderr, "%s%s ", oldprefix, ben_str_val(key));
+			info("%s%s ", oldprefix, ben_str_val(key));
 		}
 	}
 }
@@ -144,10 +150,13 @@ static int write_rmc(const char *targetfname, const struct bencode *container)
 	struct bencode *files = ben_list_get(container, 2);
 	FILE *f;
 	int ret = -1;
+	char *metastring = ben_print(ben_list_get(container, 1));
 
-	fprintf(stderr, "meta: %s files: ", ben_print(ben_list_get(container, 1)));
+	info("meta: %s files: ", metastring);
+	free_and_null(metastring);
+
 	print_dict_keys(files, "");
-	fprintf(stderr, "\n");
+	info("\n");
 
 	data = ben_encode(&len, container);
 	if (data == NULL)
@@ -158,12 +167,12 @@ static int write_rmc(const char *targetfname, const struct bencode *container)
 		if (xfwrite(data, 1, len, f) == len) {
 			ret = 0;
 		} else {
-			fprintf(stderr, "rmc: Can not write all data to %s\n", targetfname);
+			error("Can not write all data to %s\n", targetfname);
 			unlink(targetfname);
 		}
 		fclose(f);
 	} else {
-		fprintf(stderr, "rmc: Can not create file %s\n", targetfname);
+		error("Can not create file %s\n", targetfname);
 	}
 
 	free(data);
@@ -202,6 +211,16 @@ static void set_info(struct bencode *meta, struct uade_state *state)
 		set_str_by_str(meta, "format", "custom");
 }
 
+static void record_file(struct bencode *container, const char *relname,
+			void *data, size_t len,
+			struct collection_context *context, const char *fname)
+{
+	if (uade_rmc_record_file(container, relname, data, len))
+		die("Failed to record %s into container\n", fname);
+	if (ben_list_append_str(context->filelist, fname))
+		die("Failed to append %s to file list\n", fname);
+}
+
 struct uade_file *collect_files(const char *name, const char *playerdir,
 				void *context, struct uade_state *state)
 {
@@ -210,13 +229,14 @@ struct uade_file *collect_files(const char *name, const char *playerdir,
 	char *separator;
 	size_t pos;
 	const struct uade_song_info *info = uade_get_song_info(state);
-	struct bencode *container = context;
+	struct collection_context *collection_context = context;
+	struct bencode *container = collection_context->container;
 	struct uade_file *oldfile;
 	struct uade_file *f = uade_load_amiga_file(name, playerdir, state);
 	if (f == NULL)
 		return NULL;
 
-	fprintf(stderr, "Trying to collect %s\n", name);
+	info("Trying to collect %s\n", name);
 
 	/* Do not collect file names with ':' (for example, ENV:Foo) */
 	separator = strchr(name, ':');
@@ -230,7 +250,9 @@ struct uade_file *collect_files(const char *name, const char *playerdir,
 	}
 
 	if (memcmp(dirname, name, strlen(dirname)) != 0) {
-		fprintf(stderr, "Ignoring file which does not have the same path prefix as the song file. File to be loaded: %s Song file: %s\n", name, info->modulefname);
+		warning("Ignoring file which does not have the same path "
+			"prefix as the song file. File to be loaded: %s "
+			"Song file: %s\n", name, info->modulefname);
 		return f;
 	}
 
@@ -242,28 +264,18 @@ struct uade_file *collect_files(const char *name, const char *playerdir,
 	snprintf(path, sizeof path, "%s", name + pos);
 	/* path is now relative to the song file */
 	assert(strlen(path) > 0);
-	fprintf(stderr, "Shortened path name is %s\n", path);
+	info("Shortened path name is %s\n", path);
 
 	oldfile = uade_rmc_get_file(container, path);
 	if (oldfile != NULL) {
-		fprintf(stderr, "File already exists, not recording: %s\n", path);
+		info("File already exists, not recording: %s\n", path);
 		return f;
 	}
 
-	if (uade_rmc_record_file(container, path, f->data, f->size))
-		die("Failed to record %s\n", name);
+	record_file(container, path, f->data, f->size,
+		    collection_context, name);
 
 	return f;
-}
-
-static void record_file(struct bencode *container, struct uade_file *f)
-{
-	struct bencode *files = ben_list_get(container, 2);
-	struct bencode *file = ben_blob(f->data, f->size);
-	if (file == NULL || files == NULL)
-		die("Unable to get container or create a blob: %s\n", f->name);
-	if (ben_dict_set(files, get_basename(f->name), file))
-		die("Unable to insert file: %s\n", f->name);
 }
 
 static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
@@ -313,6 +325,39 @@ static void finalize(struct bencode *container, struct uade_file *f)
 		die("Can not set song name to be played\n");
 }
 
+static void init_collection_context(struct collection_context *context,
+				    struct bencode *container,
+				    struct uade_file *f)
+{
+	char fbasename[PATH_MAX];
+	*context = (struct collection_context) {.container = container};
+	xbasename(fbasename, sizeof fbasename, f->name);
+	context->filelist = ben_list();
+	if (context->filelist == NULL)
+		die("Can not allocate memory for file collection list\n");
+	record_file(container, fbasename, f->data, f->size, context, f->name);
+}
+
+static int remove_collected_files(struct collection_context *context)
+{
+	int ret = 0;
+	size_t pos;
+	struct bencode *str;
+	const char *fname;
+	ben_list_for_each(str, pos, context->filelist) {
+		assert(ben_is_str(str));
+		fname = ben_str_val(str);
+		if (remove(fname)) {
+			warning("Unable to remove file %s: %s\n",
+				fname, strerror(errno));
+			ret = -1;
+		} else {
+			info("Removed %s\n", fname);
+		}
+	}
+	return ret;
+}
+
 static int convert(struct uade_file *f, struct uade_state *state)
 {
 	const struct uade_song_info *info = uade_get_song_info(state);
@@ -329,18 +374,20 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	struct bencode *container = create_container();
 	struct bencode *meta = ben_list_get(container, 1);
 	char targetname[PATH_MAX];
+	struct collection_context collection_context;
 
 	assert(nsubsongs > 0);
 
 	get_targetname(targetname, sizeof targetname, state);
 
-	debug("Converting %s to %s (%d subsongs)\n", f->name, targetname, nsubsongs);
+	debug("Converting %s to %s (%d subsongs)\n",
+	      f->name, targetname, nsubsongs);
 
 	uade_stop(state);
 
-	record_file(container, f);
+	init_collection_context(&collection_context, container, f);
 
-	uade_set_amiga_loader(collect_files, container, state);
+	uade_set_amiga_loader(collect_files, &collection_context, state);
 
 	starttime = getmstime();
 
@@ -349,7 +396,7 @@ static int convert(struct uade_file *f, struct uade_state *state)
 			UADE_BYTES_PER_FRAME;
 
 		if (nsubsongs > 1)
-			fprintf(stderr, "Converting subsong %d / %d\n",
+			info("Converting subsong %d / %d\n",
 				cur, max);
 
 		ret = uade_play_from_buffer(f->name, f->data, f->size, cur,
@@ -381,11 +428,15 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	simtime = getmstime() - starttime;
 	if (simtime < 0)
 		simtime = 0;
-	fprintf(stderr, "play time %d ms, simulation time %lld ms, speedup %.1fx\n", sumtime, simtime, ((float) sumtime) / simtime);
+	info("play time %d ms, simulation time %lld ms, speedup %.1fx\n", sumtime, simtime, ((float) sumtime) / simtime);
 
 	finalize(container, f);
 
 	ret = write_rmc(targetname, container);
+
+	if (ret == 0 && delete_after_packing)
+		ret = remove_collected_files(&collection_context);
+
 	goto exit;
 
 error:
@@ -393,6 +444,7 @@ error:
 exit:
 	uade_set_amiga_loader(NULL, NULL, state);
 	ben_free(container);
+	ben_free(collection_context.filelist);
 	return ret;
 }
 
@@ -414,8 +466,10 @@ static void initialize_config(struct uade_config *config)
 static void print_usage(void)
 {
 	printf(
-"Usage:\n"
+"Usage: rmc [-h|-u|-w t] [file1 file2 ..]\n"
 "\n"
+"-d      Delete song after successful packing. This can be reversed with -u,\n"
+"        that is, obtain the original song file by unpacking the container.\n"
 "-h      Print help\n"
 "-u      Unpack mode: unpack RMC files into meta and song files\n"
 "-w t    Set subsong timeout to be t seconds\n"
@@ -442,7 +496,7 @@ static int put_files_into_container(int i, int argc, char *argv[])
 		}
 
 		if (uade_is_rmc(f->data, f->size)) {
-			fprintf(stderr, "Won't convert RMC again: %s\n", f->name);
+			info("Won't convert RMC again: %s\n", f->name);
 			uade_file_free(f);
 			continue;
 		}
@@ -473,6 +527,8 @@ static int put_files_into_container(int i, int argc, char *argv[])
 
 	/* state can be NULL */
 	uade_cleanup_state(state);
+
+	free_and_null(config);
 
 	return exitval;
 }
@@ -641,7 +697,7 @@ static int unpack_file(struct uade_file *f)
 		goto cleanup;
 
 	ben_free(container);
-	fprintf(stderr, "Unpacked %s to directory %s (OK)\n", f->name, dirname);
+	info("Unpacked %s to directory %s (OK)\n", f->name, dirname);
 	return 0;
 
 cleanup:
@@ -680,10 +736,13 @@ int main(int argc, char *argv[])
 	operation = put_files_into_container;
 
 	while (1) {
-		ret = getopt(argc, argv, "huw:");
+		ret = getopt(argc, argv, "dhuw:");
 		if (ret  < 0)
 			break;
 		switch (ret) {
+		case 'd':
+			delete_after_packing = 1;
+			break;
 		case 'h':
 			print_usage();
 			exit(0);
