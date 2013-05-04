@@ -7,3 +7,4 @@
   manually edit meta by first unpacking, then editing metastring file and then
   repacking the data.
 
+* Encode relevant fields in RMC with utf-8
