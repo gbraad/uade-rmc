@@ -251,8 +251,6 @@ struct uade_file *collect_files(const char *name, const char *playerdir,
 	if (f == NULL)
 		return NULL;
 
-	info("Trying to collect %s\n", name);
-
 	/* Do not collect file names with ':' (for example, ENV:Foo) */
 	separator = strchr(name, ':');
 	if (separator != NULL)
@@ -279,15 +277,15 @@ struct uade_file *collect_files(const char *name, const char *playerdir,
 	snprintf(path, sizeof path, "%s", name + pos);
 	/* path is now relative to the song file */
 	assert(strlen(path) > 0);
-	info("Shortened path name is %s\n", path);
 
 	oldfile = uade_rmc_get_file(container, path);
 	if (oldfile != NULL) {
 		uade_file_free(oldfile);
 		oldfile = NULL;
-		info("File already exists, not recording: %s\n", path);
 		return f;
 	}
+
+	info("Collecting %s\n", name);
 
 	record_file(container, path, f->data, f->size,
 		    collection_context, name);
