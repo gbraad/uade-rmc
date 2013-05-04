@@ -2,3 +2,8 @@
   same syntax as with uade123. E.g. Do the conversion with:
 
       rmc -P my-eagleplayer songname.
+
+* Add -m option to force use of given meta string. This make it possibly to
+  manually edit meta by first unpacking, then editing metastring file and then
+  repacking the data.
+
