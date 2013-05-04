@@ -236,7 +236,7 @@ static void record_file(struct bencode *container, const char *relname,
 		die("Failed to append %s to file list\n", fname);
 }
 
-struct uade_file *collect_files(const char *name, const char *playerdir,
+struct uade_file *collect_files(const char *amiganame, const char *playerdir,
 				void *context, struct uade_state *state)
 {
 	char dirname[PATH_MAX];
@@ -247,7 +247,8 @@ struct uade_file *collect_files(const char *name, const char *playerdir,
 	struct collection_context *collection_context = context;
 	struct bencode *container = collection_context->container;
 	struct uade_file *oldfile;
-	struct uade_file *f = uade_load_amiga_file(name, playerdir, state);
+	struct uade_file *f = uade_load_amiga_file(amiganame, playerdir, state);
+	const char *name = f->name;
 	if (f == NULL)
 		return NULL;
 
