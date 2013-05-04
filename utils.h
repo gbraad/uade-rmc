@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#define UNUSED(x) do { (void) (x); } while (0)
+
 #define debug(fmt, args...) do { fprintf(stderr, fmt, ## args); } while (0)
 #define die(fmt, args...) do { fprintf(stderr, "rmc fatal error: " fmt, ## args); abort(); } while(0)
 #define error(fmt, args...) do { fprintf(stderr, "rmc error: " fmt, ## args); } while(0)

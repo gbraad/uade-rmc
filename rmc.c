@@ -5,6 +5,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <ftw.h>
 #include <getopt.h>
 #include <libgen.h>
 #include <string.h>
@@ -18,6 +19,10 @@
 
 static int subsongtimeout = 512;
 static int delete_after_packing = 0;
+static int recursive_mode = 1;
+static int overwrite_mode = 1;
+
+static struct bencode *scanner_file_list;
 
 struct collection_context {
 	struct bencode *container;
@@ -366,24 +371,34 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	int min = info->subsongs.min;
 	int max = info->subsongs.max;
 	int cur;
-	int ret;
+	int ret = 0;
 	size_t subsongbytes;
 	long long starttime;
 	long long simtime;
 	int playtime;
 	int sumtime = 0;
 	int nsubsongs = max - min + 1;
-	struct bencode *container = create_container();
-	struct bencode *meta = ben_list_get(container, 1);
+	struct bencode *container = NULL;
+	struct bencode *meta;
 	char targetname[PATH_MAX];
-	struct collection_context collection_context;
+	struct collection_context collection_context = {.filelist = NULL};
+	struct stat st;
 
 	assert(nsubsongs > 0);
 
 	get_targetname(targetname, sizeof targetname, state);
 
+	if (stat(targetname, &st) == 0 &&
+	    overwrite_mode == 0) {
+		info("Not overwriting file %s. Not converting file %s.\n",
+		     targetname, f->name);
+		goto exit;
+	}
 	debug("Converting %s to %s (%d subsongs)\n",
 	      f->name, targetname, nsubsongs);
+
+	container = create_container();
+	meta = ben_list_get(container, 1);
 
 	uade_stop(state);
 
@@ -468,14 +483,28 @@ static void initialize_config(struct uade_config *config)
 static void print_usage(void)
 {
 	printf(
-"Usage: rmc [-h|-u|-w t] [file1 file2 ..]\n"
+"Usage: rmc [-d|-h|-n|-r|-u|-w t] [file1 file2 ..]\n"
 "\n"
 "-d      Delete song after successful packing. This can be reversed with -u,\n"
 "        that is, obtain the original song file by unpacking the container.\n"
-"-h      Print help\n"
-"-u      Unpack mode: unpack RMC files into meta and song files\n"
-"-w t    Set subsong timeout to be t seconds\n"
+"-h      Print help.\n"
+"-n      Do not overwrite an existing rmc file. This can be used for\n"
+"        incremental conversion of directories.\n"
+"-r      Scan given directories recursively and process everything.\n"
+"-u      Unpack mode: unpack RMC files into meta and song files.\n"
+"-w t    Set subsong timeout to be t seconds.\n"
 		);
+}
+
+static int directory_traverse_fn(const char *fpath, const struct stat *sb,
+				 int typeflag)
+{
+	UNUSED(sb);
+	if (typeflag != FTW_F)
+		return 0;
+	if (ben_list_append_str(scanner_file_list, fpath))
+		die("No memory to append file %s to scanner list\n", fpath);
+	return 0;
 }
 
 static int put_files_into_container(int i, int argc, char *argv[])
@@ -484,6 +513,17 @@ static int put_files_into_container(int i, int argc, char *argv[])
 	struct uade_state *state = NULL;
 	int exitval = 0;
 	struct uade_config *config = uade_new_config();
+	size_t pos;
+	struct bencode *benarg;
+
+	/*
+	 * Use a global variable because ftw() call does not allow an opaque
+	 * data parameter for directory scanning. Dirty.
+	 */
+	assert(scanner_file_list == NULL);
+	scanner_file_list = ben_list();
+	if (scanner_file_list == NULL)
+		die("No memory for scanner file list\n");
 
 	if (config == NULL)
 		die("Could not allocate memory for config\n");
@@ -491,9 +531,24 @@ static int put_files_into_container(int i, int argc, char *argv[])
 	initialize_config(config);
 
 	for (; i < argc; i++) {
-		struct uade_file *f = uade_file_load(argv[i]);
+		struct stat st;
+		if (stat(argv[i], &st))
+			die("Can not stat %s\n", argv[i]);
+		if (S_ISDIR(st.st_mode)) {
+			ret = ftw(argv[i], directory_traverse_fn, 500);
+			if (ret != 0)
+				die("Traversing directory %s failed\n",
+				    argv[i]);
+		} else {
+			ben_list_append_str(scanner_file_list, argv[i]);
+		}
+	}
+
+	ben_list_for_each(benarg, pos, scanner_file_list) {
+		const char *arg = ben_str_val(benarg);
+		struct uade_file *f = uade_file_load(arg);
 		if (f == NULL) {
-			fprintf(stderr, "Can not open %s\n", argv[i]);
+			fprintf(stderr, "Can not open %s\n", arg);
 			continue;
 		}
 
@@ -508,14 +563,15 @@ static int put_files_into_container(int i, int argc, char *argv[])
 		if (state == NULL)
 			die("Can not initialize uade state\n");
 
-		ret = uade_play_from_buffer(f->name, f->data, f->size, -1, state);
+		ret = uade_play_from_buffer(f->name, f->data, f->size, -1,
+					    state);
 		if (ret < 0) {
 			uade_cleanup_state(state);
 			state = NULL;
-			warning("Error in uade state when initializing %s\n", argv[i]);
+			error("Can convert (play) %s\n", arg);
 			goto nextfile;
 		} else if (ret == 0) {
-			debug("%s is not playable (convertable)\n", argv[i]);
+			debug("%s is not playable (convertable)\n", arg);
 			goto nextfile;
 		}
 
@@ -531,6 +587,9 @@ static int put_files_into_container(int i, int argc, char *argv[])
 	uade_cleanup_state(state);
 
 	free_and_null(config);
+
+	ben_free(scanner_file_list);
+	scanner_file_list = NULL;
 
 	return exitval;
 }
@@ -678,13 +737,14 @@ static int unpack_file(struct uade_file *f)
 	dirname[0] = 0;
 
 	if (!uade_is_rmc(f->data, f->size)) {
-		fprintf(stderr, "%s is not an RMC file\n", f->name);
+		error("%s is not an RMC file\n", f->name);
 		return 1;
 	}
 
 	snprintf(dirname, sizeof dirname, "%s.unpacked", f->name);
 	if (mkdir(dirname, 0700)) {
-		fprintf(stderr, "Unable to create directory %s: %s\n", dirname, strerror(errno));
+		error("Unable to create directory %s: %s\n",
+		      dirname, strerror(errno));
 		return 1;
 	}
 
@@ -714,6 +774,9 @@ static int unpack_containers(int i, int argc, char *argv[])
 	int exitval = 0;
 	struct uade_file *f;
 
+	if (recursive_mode)
+		die("Recursive mode is not yet implemented for unpacking.");
+
 	for (; i < argc; i++) {
 		f = uade_file_load(argv[i]);
 		if (f == NULL) {
@@ -738,7 +801,7 @@ int main(int argc, char *argv[])
 	operation = put_files_into_container;
 
 	while (1) {
-		ret = getopt(argc, argv, "dhuw:");
+		ret = getopt(argc, argv, "dhnruw:");
 		if (ret  < 0)
 			break;
 		switch (ret) {
@@ -748,6 +811,12 @@ int main(int argc, char *argv[])
 		case 'h':
 			print_usage();
 			exit(0);
+		case 'n':
+			overwrite_mode = 0;
+			break;
+		case 'r':
+			recursive_mode = 1;
+			break;
 		case 'u':
 			/* Unpack rmc file */
 			operation = unpack_containers;
