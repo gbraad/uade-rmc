@@ -579,7 +579,7 @@ static int put_files_into_container(int i, int argc, char *argv[])
 		if (ret < 0) {
 			uade_cleanup_state(state);
 			state = NULL;
-			error("Can convert (play) %s\n", arg);
+			error("Can not convert (play) %s\n", arg);
 			goto nextfile;
 		} else if (ret == 0) {
 			debug("%s is not playable (convertable)\n", arg);
@@ -591,7 +591,8 @@ static int put_files_into_container(int i, int argc, char *argv[])
 
 	nextfile:
 		uade_file_free(f);
-		uade_stop(state);
+		if (state != NULL)
+			uade_stop(state);
 	}
 
 	/* state can be NULL */
