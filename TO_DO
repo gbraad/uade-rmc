@@ -8,3 +8,5 @@
   repacking the data.
 
 * Encode relevant fields in RMC with utf-8
+
+* Implement -s to show metadata.
