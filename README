@@ -4,3 +4,7 @@ Author information is presented in AUTHORS file.
 The program is licensed under LGPL 2.1, see COPYING.LGPL file for details.
 
 The project is hosted at https://gitlab.com/uade-music-player/rmc
+
+# Dependencies
+
+Install bencodetools: https://gitlab.com/heikkiorsila/bencodetools
