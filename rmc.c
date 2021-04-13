@@ -65,13 +65,11 @@ static void set_str_by_str(struct bencode *d, const char *key,
 {
 	char latin1[4096];
 	char utf8[4096];
-	size_t inbytesleft;
-	size_t outbytesleft;
+	size_t inbytesleft = strlcpy(latin1, value, sizeof(latin1));
+	size_t outbytesleft = sizeof(utf8);
 	char *in = latin1;
 	char *out = utf8;
-	inbytesleft = strlcpy(latin1, value, sizeof(latin1));
 	z_assert(inbytesleft < sizeof(latin1));
-	outbytesleft = sizeof(utf8);
 
 	size_t ret = iconv(iconv_cd, &in, &inbytesleft, &out, &outbytesleft);
 	if (ret == ((size_t) -1))
