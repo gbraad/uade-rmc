@@ -1,9 +1,9 @@
 CC = {CC}
-CFLAGS = -Wall -O2 -g {CFLAGS}
+CFLAGS = -Wall -O2 -g {CFLAGS} -Ilibzakalwe/include
 LDFLAGS = {LDFLAGS}
 PREFIX = {PREFIX}
 
-RMCMODULES = rmc.o utils.o
+RMCMODULES = rmc.o utils.o libzakalwe/static_pack.o
 
 all:	rmc
 
@@ -13,11 +13,21 @@ rmc:	$(RMCMODULES)
 rmc.o:	rmc.c utils.h
 utils.o:	utils.c utils.h
 
+libzakalwe/static_pack.o:
+	@echo
+	@echo "Compile libzakalwe"
+	@echo
+	$(MAKE) -C libzakalwe static_pack.o
+	@echo
+	@echo "libzakalwe compiled"
+	@echo
+
 %.o:	%.c
 	$(CC) $(CFLAGS) -c $<
 
 clean:	
 	rm -f rmc *.o
+	$(MAKE) -C libzakalwe clean
 
 install:	
 	install rmc "$(PREFIX)/bin/"

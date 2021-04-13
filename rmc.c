@@ -2,6 +2,8 @@
 
 #include <uade/uade.h>
 #include <bencodetools/bencode.h>
+#include <zakalwe/base.h>
+#include <zakalwe/string.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -454,7 +456,8 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	simtime = getmstime() - starttime;
 	if (simtime < 0)
 		simtime = 0;
-	info("play time %d ms, simulation time %lld ms, speedup %.1fx\n", sumtime, simtime, ((float) sumtime) / simtime);
+	info("play time %d ms, simulation time %lld ms, speedup %.1fx\n",
+	     sumtime, simtime, ((float) sumtime) / simtime);
 
 	finalize(container, f);
 
@@ -559,7 +562,7 @@ static int put_files_into_container(int i, int argc, char *argv[])
 		const char *arg = ben_str_val(benarg);
 		struct uade_file *f = uade_file_load(arg);
 		if (f == NULL) {
-			fprintf(stderr, "Can not open %s\n", arg);
+			z_log_error("Can not open %s\n", arg);
 			continue;
 		}
 
@@ -611,18 +614,18 @@ static struct bencode *get_container(struct uade_file *f)
 {
 	struct bencode *container = ben_decode(f->data, f->size);
 	if (container == NULL) {
-		fprintf(stderr, "Unable to decode %s\n", f->name);
+		z_log_error("Unable to decode %s\n", f->name);
 		return NULL;
 	}
 
 	if (!ben_is_list(container) || ben_list_len(container) < 3) {
-		fprintf(stderr, "Invalid container format: no main list: %s\n", f->name);
+		z_log_error("Invalid container format: no main list: %s\n", f->name);
 		goto err;
 	}
 
 	if (!ben_is_dict(ben_list_get(container, 1)) ||
 	    !ben_is_dict(ben_list_get(container, 2))) {
-		fprintf(stderr, "Either meta or files is not a dictionary: %s\n", f->name);
+		z_log_error("Either meta or files is not a dictionary: %s\n", f->name);
 		goto err;
 	}
 
@@ -643,18 +646,18 @@ static int unpack_meta(const char *dirname, struct bencode *container)
 
 	f = fopen(metaname, "wb");
 	if (f == NULL) {
-		fprintf(stderr, "Can not open meta file for writing: %s (%s)\n", metaname, strerror(errno));
+		z_log_error("Can not open meta file for writing: %s (%s)\n", metaname, strerror(errno));
 		goto err;
 	}
 
 	metastring = ben_print(ben_list_get(container, 1));
 	if (metastring == NULL) {
-		fprintf(stderr, "Can not generate meta string\n");
+		z_log_error("Can not generate meta string\n");
 		goto err;
 	}
 
 	if (xfwrite(metastring, strlen(metastring), 1, f) != 1) {
-		fprintf(stderr, "Write error to meta file %s (%s)\n", metaname, strerror(errno));
+		z_log_error("Write error to meta file %s (%s)\n", metaname, strerror(errno));
 		goto err;
 	}
 
@@ -680,20 +683,20 @@ static int scan_and_write_files(const struct bencode *files, const char *oldpref
 
 	ben_dict_for_each(key, value, pos, files) {
 		if (!ben_is_str(key)) {
-			fprintf(stderr, "File name must be a string\n");
+			z_log_error("File name must be a string\n");
 			return 1;
 		}
 		if (strcmp(ben_str_val(key), "..") == 0 ||
 		    strcmp(ben_str_val(key), ".") == 0 ||
 		    strstr(ben_str_val(key), "/") != NULL) {
-			fprintf(stderr, "Invalid name: %s\n", ben_str_val(key));
+			z_log_error("Invalid name: %s\n", ben_str_val(key));
 			return 1;
 		}
 
 		if (ben_is_dict(value)) {
 			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix, ben_str_val(key));
 			if (mkdir(prefix, 0700)) {
-				fprintf(stderr, "Unable to create directory %s (%s)\n", prefix, strerror(errno));
+				z_log_error("Unable to create directory %s (%s)\n", prefix, strerror(errno));
 				return 1;
 			}
 			if (scan_and_write_files(value, prefix))
@@ -702,17 +705,17 @@ static int scan_and_write_files(const struct bencode *files, const char *oldpref
 		}
 
 		if (!ben_is_str(value)) {
-			fprintf(stderr, "Invalid file content: %s\n", ben_str_val(key));
+			z_log_error("Invalid file content: %s\n", ben_str_val(key));
 			return 1;
 		}
 		snprintf(prefix, sizeof prefix, "%s%s", oldprefix, ben_str_val(key));
 		f = fopen(prefix, "wb");
 		if (f == NULL) {
-			fprintf(stderr, "Can not write file");
+			z_log_error("Can not write file");
 			return 1;
 		}
 		if (xfwrite(ben_str_val(value), ben_str_len(value), 1, f) != 1) {
-			fprintf(stderr, "Unable to write to file: %s (%s)\n", prefix, strerror(errno));
+			z_log_error("Unable to write to file: %s (%s)\n", prefix, strerror(errno));
 			fclose(f);
 			return 1;
 		}
@@ -731,11 +734,11 @@ static int unpack_files(const char *dirname, struct bencode *container)
 	snprintf(prefix, sizeof prefix, "%s/files/", dirname);
 
 	if (mkdir(prefix, 0700)) {
-		fprintf(stderr, "Unable to create directory %s (%s)\n", prefix, strerror(errno));
+		z_log_error("Unable to create directory %s (%s)\n", prefix, strerror(errno));
 		return -1;
 	}
 	if (scan_and_write_files(files, prefix)) {
-		fprintf(stderr, "Can not unpack RMC to %s\n", dirname);
+		z_log_error("Can not unpack RMC to %s\n", dirname);
 		return -1;
 	}
 	return 0;
@@ -776,7 +779,7 @@ static int unpack_file(struct uade_file *f)
 
 cleanup:
 	if (dirname[0] && rmdir(dirname)) {
-		fprintf(stderr, "Directory %s has been left in invalid state.\nPlease fix or clean it.\n", dirname);
+		z_log_error("Directory %s has been left in invalid state.\nPlease fix or clean it.\n", dirname);
 	}
 	return 1;
 }
@@ -792,7 +795,7 @@ static int unpack_containers(int i, int argc, char *argv[])
 	for (; i < argc; i++) {
 		f = uade_file_load(argv[i]);
 		if (f == NULL) {
-			fprintf(stderr, "Can not open file %s\n", argv[i]);
+			z_log_error("Can not open file %s\n", argv[i]);
 			exitval = 1;
 			continue;
 		}

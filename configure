@@ -87,6 +87,18 @@ sed -e "s|{PREFIX}|$prefix|g" \
     -e "s|{LDFLAGS}|$LDFLAGS|g" \
     < Makefile.in > Makefile
 
+if [[ ! -e libzakalwe ]] ; then
+    ./import-dependencies.sh
+fi
+
+if [[ libzakalwe ]] ; then
+    cd libzakalwe && ./configure
+    if [[ $? != "0" ]] ; then
+	echo "Configuring libzakalwe failed"
+	exit 1
+    fi
+fi
+
 echo
 echo "Install path:         $prefix/bin"
 echo "Compiler:             $CC"
