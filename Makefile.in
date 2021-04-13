@@ -1,5 +1,5 @@
 CC = {CC}
-CFLAGS = -Wall -O2 -g {CFLAGS} -Ilibzakalwe/include
+CFLAGS = -W -Wall -O2 -g {CFLAGS} -Ilibzakalwe/include
 LDFLAGS = {LDFLAGS}
 PREFIX = {PREFIX}
 

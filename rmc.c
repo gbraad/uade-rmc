@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <ftw.h>
 #include <getopt.h>
+#include <iconv.h>
 #include <libgen.h>
 #include <string.h>
 #include <sys/resource.h>
@@ -30,6 +31,9 @@ struct collection_context {
 	struct bencode *container;
 	struct bencode *filelist;
 };
+
+iconv_t iconv_cd;
+
 
 static long long getmstime(void)
 {
@@ -56,10 +60,25 @@ static size_t xfwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
         return written;
 }
 
-static void set_str_by_str(struct bencode *d, const char *key, const char *value)
+static void set_str_by_str(struct bencode *d, const char *key,
+			   const char *value)
 {
-	if (ben_dict_set_str_by_str(d, key, value))
-		die("Can not set %s to %s\n", value, key);
+	char latin1[4096];
+	char utf8[4096];
+	size_t inbytesleft;
+	size_t outbytesleft;
+	char *in = latin1;
+	char *out = utf8;
+	inbytesleft = strlcpy(latin1, value, sizeof(latin1));
+	z_assert(inbytesleft < sizeof(latin1));
+	outbytesleft = sizeof(utf8);
+
+	size_t ret = iconv(iconv_cd, &in, &inbytesleft, &out, &outbytesleft);
+	if (ret == ((size_t) -1))
+		z_die("Characted encoding error: %s\n", strerror(errno));
+
+	if (ben_dict_set_str_by_str(d, key, utf8))
+		die("Can not set %s to %s\n", utf8, key);
 }
 
 /* Simulate one subsong, and return the number of bytes simulated */
@@ -224,8 +243,22 @@ static struct bencode *get_basename(const char *fname)
 static void set_info(struct bencode *meta, struct uade_state *state)
 {
 	const struct uade_song_info *info = uade_get_song_info(state);
-	if (info->detectioninfo.custom)
-		set_str_by_str(meta, "format", "custom");
+	const char *formatname = NULL;
+	if (info->detectioninfo.custom) {
+		formatname = "custom";
+	} else {
+		formatname = info->formatname;
+	}
+
+	// Workaround for PTK-Prowiz
+	if (strncmp(formatname, "type: ", 6) == 0)
+		formatname += 6;
+
+	if (strlen(formatname) > 0)
+		set_str_by_str(meta, "format", formatname);
+
+	if (strlen(info->modulename) > 0)
+		set_str_by_str(meta, "title", info->modulename);
 }
 
 static void record_file(struct bencode *container, const char *relname,
@@ -277,7 +310,8 @@ struct uade_file *collect_files(const char *amiganame, const char *playerdir,
 		pos++;
 	assert(name[pos] != '/');
 
-	snprintf(path, sizeof path, "%s", name + pos);
+	z_assert(strlcpy(path, name + pos, sizeof(path)) < sizeof(path));
+
 	/* path is now relative to the song file */
 	assert(strlen(path) > 0);
 
@@ -306,12 +340,13 @@ static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
 	int isprefix = 0;
 	int ispostfix = 0;
 	char *t = NULL;
+	int ret;
 
 	xdirname(dname, sizeof dname, info->modulefname);
 	xbasename(bname, sizeof bname, info->modulefname);
 
 	if (ext[0]) {
-		size_t extlen = strlen(ext);
+		const size_t extlen = strlen(ext);
 		isprefix = (strncasecmp(bname, ext, extlen) == 0) &&
 			   (bname[extlen] == '.');
 		t = strrchr(bname, '.');
@@ -322,16 +357,18 @@ static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
 		t = strrchr(bname, '.');
 		assert(t != NULL);
 		*t = 0;
-		snprintf(newbname, sizeof newbname, "%s.rmc", bname);
+		ret = snprintf(newbname, sizeof newbname, "%s.rmc", bname);
 	} else if (isprefix) {
 		t = strchr(bname, '.');
 		assert(t != NULL);
-		snprintf(newbname, sizeof newbname, "%s.rmc", t + 1);
+		ret = snprintf(newbname, sizeof newbname, "%s.rmc", t + 1);
 	} else {
-		snprintf(newbname, sizeof newbname, "%s.rmc", bname);
+		ret = snprintf(newbname, sizeof newbname, "%s.rmc", bname);
 	}
+	z_assert(ret >=0 && ((size_t) ret) < sizeof(newbname));
 
-	snprintf(name, maxlen, "%s/%s", dname, newbname);
+	ret = snprintf(name, maxlen, "%s/%s", dname, newbname);
+	z_assert(ret >= 0 && ((size_t) ret) < maxlen);
 }
 
 static void finalize(struct bencode *container, struct uade_file *f)
@@ -424,8 +461,7 @@ static int convert(struct uade_file *f, struct uade_state *state)
 			UADE_BYTES_PER_FRAME;
 
 		if (nsubsongs > 1)
-			info("Converting subsong %d / %d\n",
-				cur, max);
+			info("Converting subsong %d / %d\n", cur, max);
 
 		ret = uade_play_from_buffer(f->name, f->data, f->size, cur,
 					    state);
@@ -442,7 +478,7 @@ static int convert(struct uade_file *f, struct uade_state *state)
 		set_info(meta, state);
 
 		subsongbytes = simulate(state);
-		if (subsongbytes == -1)
+		if (subsongbytes == ((size_t) -1))
 			goto error;
 
 		playtime = (subsongbytes * 1000) / bytespersecond;
@@ -812,6 +848,9 @@ int main(int argc, char *argv[])
 	char *end;
 	int ret;
 	int (*operation)(int i, int argc, char *argv[]);
+
+	iconv_cd = iconv_open("utf-8", "iso-8859-1");
+	z_assert((size_t) iconv_cd != ((size_t) -1));
 
 	operation = put_files_into_container;
 
