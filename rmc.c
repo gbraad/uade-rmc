@@ -24,6 +24,7 @@ static int subsong_timeout = 512;
 static int delete_after_packing = 0;
 static int recursive_mode = 0;
 static int overwrite_mode = 1;
+static char pack_dir[PATH_MAX];
 static char unpack_dir[PATH_MAX];
 
 static struct bencode *scanner_file_list;
@@ -809,7 +810,13 @@ cleanup:
 	return 1;
 }
 
-static int unpack_containers(int i, int argc, char *argv[])
+static int pack_containers(int i, int argc, char *argv[])
+{
+	z_die("Not implemented\n");
+	z_assert((i + 1) == argc);
+}
+
+static int unpack_container(int i, int argc, char *argv[])
 {
 	int exitval = 0;
 	struct uade_file *f;
@@ -817,17 +824,18 @@ static int unpack_containers(int i, int argc, char *argv[])
 	if (recursive_mode)
 		die("Recursive mode is not yet implemented for unpacking.");
 
-	for (; i < argc; i++) {
-		f = uade_file_load(argv[i]);
-		if (f == NULL) {
-			z_log_error("Can not open file %s\n", argv[i]);
-			exitval = 1;
-			continue;
-		}
-		if (unpack_file(unpack_dir, f))
-			exitval = 1;
-		uade_file_free(f);
+	z_assert((i + 1) == argc);
+
+	f = uade_file_load(argv[i]);
+	if (f == NULL) {
+		z_log_error("Can not open file %s\n", argv[i]);
+		return 1;
 	}
+
+	if (unpack_file(unpack_dir, f))
+		exitval = 1;
+
+	uade_file_free(f);
 
 	return exitval;
 }
@@ -858,14 +866,21 @@ int main(int argc, char *argv[])
 		case 'n':
 			overwrite_mode = 0;
 			break;
+		case 'p':
+			operation = pack_containers;
+			size = strlcpy(pack_dir, optarg, sizeof(pack_dir));
+			z_assert(size < sizeof(pack_dir));
+			z_assert(strlen(pack_dir) > 0);
+			break;
 		case 'r':
 			recursive_mode = 1;
 			break;
 		case 'u':
 			/* Unpack rmc file */
-			operation = unpack_containers;
+			operation = unpack_container;
 			size = strlcpy(unpack_dir, optarg, sizeof(unpack_dir));
 			z_assert(size < sizeof(unpack_dir));
+			z_assert(strlen(unpack_dir) > 0);
 			break;
 		case 'w':
 			/* Set subsong timeout */

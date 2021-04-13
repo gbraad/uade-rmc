@@ -1,55 +1,83 @@
 import argparse
+import ast
 import bencode
 import hashlib
+import os
 import subprocess
-from typevalidator import validate2, OPTIONAL_KEY
+import tempfile
+from typevalidator import validate2, OPTIONAL_KEY, ZERO_OR_MORE
 
+
+META_MAX_SIZE = 4096
 
 META_FORMAT = {
-    b'platform': b'amiga',
-    b'subsongs': {int: int},  # length in milliseconds
-    OPTIONAL_KEY(b'format'): str,
-    OPTIONAL_KEY(b'subformat'): str,
-    OPTIONAL_KEY(b'title'): str,
-    OPTIONAL_KEY(b'author'): str,
-    OPTIONAL_KEY(b'year'): int,
-    OPTIONAL_KEY(b'song'): bytes,
-    OPTIONAL_KEY(b'player'): str,
-    OPTIONAL_KEY(b'epoption'): {},  # a dictionary of eagleplayer options
-    OPTIONAL_KEY(b'comment'): str,
+    'platform': 'amiga',
+    'subsongs': {int: int},  # length in milliseconds
+    OPTIONAL_KEY('format'): str,
+    OPTIONAL_KEY('subformat'): str,
+    OPTIONAL_KEY('title'): str,
+    OPTIONAL_KEY('authors'): [ZERO_OR_MORE, str],
+    OPTIONAL_KEY('year'): int,
+    OPTIONAL_KEY('song'): str,
+    OPTIONAL_KEY('player'): str,
+    OPTIONAL_KEY('epoption'): {},  # a dictionary of eagleplayer options
+    OPTIONAL_KEY('comment'): str,
     }
 
 RMC_FORMAT = [bytes, META_FORMAT, dict]
 
 
-def _modland_check(fname, rmc, md5_to_meta):
-    annotation = {}
+def _modland_check(fname, rmc_meta, rmc_files, md5_to_meta):
+    changed = False
     md5 = hashlib.md5()
-    song = rmc[1][b'song']
-    song_bytes = rmc[2][song]
+    song_name = rmc_meta['song']
+    song_bytes = rmc_files[song_name]
     assert isinstance(song_bytes, bytes)
     md5.update(song_bytes)
     digest = md5.hexdigest()
     modland_meta = md5_to_meta.get(digest)
     if modland_meta is not None:
         print(fname, modland_meta)
+        modland_authors = modland_meta[2]
+        if rmc_meta.get('authors', []) != modland_authors:
+            rmc_meta['authors'] = list(modland_authors)
+            changed = True
 
-    return len(annotation) > 0
+    return changed
 
 
 def _process(fname, md5_to_meta):
+    temp_dir = tempfile.TemporaryDirectory()
     with open(fname, 'rb') as f:
         data = f.read()
-        try:
-            rmc = bencode.bdecode(data)
-        except ValueError:
-            print(fname, 'is not in rmc format (invalid bencode)')
-            return False
-        validate2(RMC_FORMAT, rmc)
-        cp = subprocess.run(['rmc', '-u', fname])
+        cp = subprocess.run(['rmc', '-u', temp_dir.name, fname])
         assert cp.returncode == 0
+        meta_name = os.path.join(temp_dir.name, 'meta')
+        data = open(meta_name, 'rb').read()
+        try:
+            data = data.decode()
+        except UnicodeDecodeError:
+            print(fname, 'meta data can not be decoded into utf-8')
+            return False
+        try:
+            meta = ast.literal_eval(data)
+        except SyntaxError:  # Really!
+            print(meta_name, 'is not in Python AST format')
+            return False
+        validate2(META_FORMAT, meta)
 
-    _modland_check(fname, rmc, md5_to_meta)
+    files = {}
+    files_dir = os.path.join(temp_dir.name, 'files')
+    for objectbasename in os.listdir(files_dir):
+        objectpathname = os.path.join(files_dir, objectbasename)
+        files[objectbasename] = open(objectpathname, 'rb').read()
+
+    if _modland_check(fname, meta, files, md5_to_meta):
+        validate2(META_FORMAT, meta)
+        print('meta changed', meta)
+
+    assert len(bencode.bencode(meta)) < META_MAX_SIZE
+
     return True
 
 
