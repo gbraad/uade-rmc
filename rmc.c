@@ -22,8 +22,9 @@
 
 static int subsong_timeout = 512;
 static int delete_after_packing = 0;
-static int recursive_mode = 1;
+static int recursive_mode = 0;
 static int overwrite_mode = 1;
+static char unpack_dir[PATH_MAX];
 
 static struct bencode *scanner_file_list;
 
@@ -675,8 +676,8 @@ static int unpack_meta(const char *dirname, struct bencode *container)
 	char metaname[PATH_MAX];
 	char *metastring = NULL;
 	FILE *f;
-
-	snprintf(metaname, sizeof metaname, "%s/meta", dirname);
+	int ret = snprintf(metaname, sizeof metaname, "%s/meta", dirname);
+	z_assert(ret >= 0 && ((size_t) ret) < sizeof(metaname));
 
 	f = fopen(metaname, "wb");
 	if (f == NULL) {
@@ -763,12 +764,15 @@ static int unpack_files(const char *dirname, struct bencode *container)
 {
 	struct bencode *files = ben_list_get(container, 2);
 	char prefix[PATH_MAX];
+	int ret;
 
 	/* Note, trailing / is important in prefix string */
-	snprintf(prefix, sizeof prefix, "%s/files/", dirname);
+	ret = snprintf(prefix, sizeof prefix, "%s/files/", dirname);
+	z_assert(ret >= 0 && ((size_t) ret) < sizeof(prefix));
 
 	if (mkdir(prefix, 0700)) {
-		z_log_error("Unable to create directory %s (%s)\n", prefix, strerror(errno));
+		z_log_error("Unable to create directory %s (%s)\n",
+			    prefix, strerror(errno));
 		return -1;
 	}
 	if (scan_and_write_files(files, prefix)) {
@@ -778,22 +782,12 @@ static int unpack_files(const char *dirname, struct bencode *container)
 	return 0;
 }
 
-static int unpack_file(struct uade_file *f)
+static int unpack_file(const char *dir, struct uade_file *f)
 {
-	char dirname[PATH_MAX];
 	struct bencode *container;
-
-	dirname[0] = 0;
 
 	if (!uade_is_rmc(f->data, f->size)) {
 		error("%s is not an RMC file\n", f->name);
-		return 1;
-	}
-
-	snprintf(dirname, sizeof dirname, "%s.unpacked", f->name);
-	if (mkdir(dirname, 0700)) {
-		error("Unable to create directory %s: %s\n",
-		      dirname, strerror(errno));
 		return 1;
 	}
 
@@ -801,20 +795,17 @@ static int unpack_file(struct uade_file *f)
 	if (container == NULL)
 		goto cleanup;
 
-	if (unpack_meta(dirname, container))
+	if (unpack_meta(dir, container))
 		goto cleanup;
 
-	if (unpack_files(dirname, container))
+	if (unpack_files(dir, container))
 		goto cleanup;
 
 	ben_free(container);
-	info("Unpacked %s to directory %s (OK)\n", f->name, dirname);
+	info("Unpacked %s to directory %s (OK)\n", f->name, dir);
 	return 0;
 
 cleanup:
-	if (dirname[0] && rmdir(dirname)) {
-		z_log_error("Directory %s has been left in invalid state.\nPlease fix or clean it.\n", dirname);
-	}
 	return 1;
 }
 
@@ -833,7 +824,7 @@ static int unpack_containers(int i, int argc, char *argv[])
 			exitval = 1;
 			continue;
 		}
-		if (unpack_file(f))
+		if (unpack_file(unpack_dir, f))
 			exitval = 1;
 		uade_file_free(f);
 	}
@@ -846,6 +837,7 @@ int main(int argc, char *argv[])
 	char *end;
 	int ret;
 	int (*operation)(int i, int argc, char *argv[]);
+	size_t size;
 
 	iconv_cd = iconv_open("utf-8", "iso-8859-1");
 	z_assert((size_t) iconv_cd != ((size_t) -1));
@@ -853,7 +845,7 @@ int main(int argc, char *argv[])
 	operation = put_files_into_container;
 
 	while (1) {
-		ret = getopt(argc, argv, "dhnruw:");
+		ret = getopt(argc, argv, "dhnru:w:");
 		if (ret  < 0)
 			break;
 		switch (ret) {
@@ -872,6 +864,8 @@ int main(int argc, char *argv[])
 		case 'u':
 			/* Unpack rmc file */
 			operation = unpack_containers;
+			size = strlcpy(unpack_dir, optarg, sizeof(unpack_dir));
+			z_assert(size < sizeof(unpack_dir));
 			break;
 		case 'w':
 			/* Set subsong timeout */
