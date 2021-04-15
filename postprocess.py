@@ -5,7 +5,7 @@ import hashlib
 import os
 import subprocess
 import tempfile
-from typevalidator import validate2, OPTIONAL_KEY, ZERO_OR_MORE
+from typevalidator import validate2, OPTIONAL_KEY, ONE_OR_MORE
 
 
 META_MAX_SIZE = 4096
@@ -14,14 +14,15 @@ META_FORMAT = {
     'platform': 'amiga',
     'subsongs': {int: int},  # length in milliseconds
     OPTIONAL_KEY('format'): str,
-    OPTIONAL_KEY('subformat'): str,
     OPTIONAL_KEY('title'): str,
-    OPTIONAL_KEY('authors'): [ZERO_OR_MORE, str],
+    OPTIONAL_KEY('authors'): [ONE_OR_MORE, str],
     OPTIONAL_KEY('year'): int,
-    OPTIONAL_KEY('song'): str,
-    OPTIONAL_KEY('player'): str,
-    OPTIONAL_KEY('epoption'): {},  # a dictionary of eagleplayer options
+    OPTIONAL_KEY('song'): bytes,
     OPTIONAL_KEY('comment'): str,
+
+    # Amiga specific
+    OPTIONAL_KEY('player'): bytes,
+    OPTIONAL_KEY('timer'): str,
     }
 
 RMC_FORMAT = [bytes, META_FORMAT, dict]
