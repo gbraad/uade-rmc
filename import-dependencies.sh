@@ -1,7 +1,7 @@
 #!/bin/bash
 
 libzakalweurl="https://gitlab.com/hors/libzakalwe"
-libzakalwehead="790abe7124e134b82aadbf7a3fac4b15d8c079a6"
+libzakalwehead="ac84680f86aea88c9219d6be7482916e83fff0c7"
 
 if [[ ! -e libzakalwe ]] ; then
     while true ; do

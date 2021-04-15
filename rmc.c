@@ -1,8 +1,8 @@
-#include "utils.h"
-
 #include <uade/uade.h>
 #include <bencodetools/bencode.h>
 #include <zakalwe/base.h>
+#include <zakalwe/file.h>
+#include <zakalwe/mem.h>
 #include <zakalwe/string.h>
 
 #include <assert.h>
@@ -41,7 +41,7 @@ static long long getmstime(void)
 {
 	struct timeval tv;
 	if (gettimeofday(&tv, NULL))
-		die("gettimeofday() does not work\n");
+		z_die("gettimeofday() does not work\n");
 	return ((long long) tv.tv_sec) * 1000 + tv.tv_usec / 1000;
 }
 
@@ -78,7 +78,7 @@ static void set_str_by_str(struct bencode *d, const char *key,
 		z_die("Characted encoding error: %s\n", strerror(errno));
 
 	if (ben_dict_set_str_by_str(d, key, utf8))
-		die("Can not set %s to %s\n", utf8, key);
+		z_die("Can not set %s to %s\n", utf8, key);
 }
 
 /* Simulate one subsong, and return the number of bytes simulated */
@@ -91,7 +91,7 @@ static size_t simulate(struct uade_state *state)
 		struct uade_notification n;
 		ssize_t ret = uade_read(buf, sizeof buf, state);
 		if (ret < 0) {
-			info("Playback error.\n");
+			fprintf(stderr, "Playback error.\n");
 			nbytes = -1;
 			break;
 		} else if (ret == 0) {
@@ -132,17 +132,19 @@ struct bencode *create_container(void)
 	subsongs = ben_dict();
 	files = ben_dict();
 
-	if (list == NULL || magic == NULL || meta == NULL || subsongs == NULL ||
-	    files == NULL)
-		die("Can not allocate memory for bencode\n");
+	if (list == NULL || magic == NULL || meta == NULL ||
+	    subsongs == NULL || files == NULL)
+		z_die("Can not allocate memory for bencode\n");
 
-	if (ben_list_append(list, magic) || ben_list_append(list, meta) || ben_list_append(list, files))
-		die("Can not append to list\n");
+	if (ben_list_append(list, magic) || ben_list_append(list, meta) ||
+	    ben_list_append(list, files)) {
+		z_die("Can not append to list\n");
+	}
 
 	set_str_by_str(meta, "platform", "amiga");
 
 	if (ben_dict_set_by_str(meta, "subsongs", subsongs))
-		die("Can not add subsong lengths\n");
+		z_die("Can not add subsong lengths\n");
 
 	return list;
 }
@@ -156,10 +158,11 @@ static void set_playtime(struct bencode *container, int sub, int playtime)
 	if (playtime == 0)
 		return;
 	if (key == NULL || value == NULL)
-		die("Can not allocate memory for key/value\n");
+		z_die("Can not allocate memory for key/value\n");
 	if (ben_dict_set(subsongs, key, value))
-		die("Can not insert %s -> %s to dictionary\n", ben_print(key), ben_print(value));
-	info("Subsong %d: %.3fs\n", sub, playtime / 1000.0);
+		z_die("Can not insert %s -> %s to dictionary\n",
+		      ben_print(key), ben_print(value));
+	fprintf(stderr, "Subsong %d: %.3fs\n", sub, playtime / 1000.0);
 }
 
 static void print_dict_keys(const struct bencode *files, const char *oldprefix)
@@ -174,7 +177,7 @@ static void print_dict_keys(const struct bencode *files, const char *oldprefix)
 			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix, ben_str_val(key));
 			print_dict_keys(value, prefix);
 		} else {
-			info("%s%s ", oldprefix, ben_str_val(key));
+			fprintf(stderr, "%s%s ", oldprefix, ben_str_val(key));
 		}
 	}
 }
@@ -188,27 +191,27 @@ static int write_rmc(const char *targetfname, const struct bencode *container)
 	int ret = -1;
 	char *metastring = ben_print(ben_list_get(container, 1));
 
-	info("meta: %s files: ", metastring);
-	free_and_null(metastring);
+	fprintf(stderr, "meta: %s files: ", metastring);
+	z_free_and_null(metastring);
 
 	print_dict_keys(files, "");
-	info("\n");
+	fprintf(stderr, "\n");
 
 	data = ben_encode(&len, container);
 	if (data == NULL)
-		die("Can not serialize\n");
+		z_die("Can not serialize\n");
 
 	f = fopen(targetfname, "wb");
 	if (f != NULL) {
 		if (xfwrite(data, 1, len, f) == len) {
 			ret = 0;
 		} else {
-			error("Can not write all data to %s\n", targetfname);
+			z_log_error("Can not write all data to %s\n", targetfname);
 			unlink(targetfname);
 		}
 		fclose(f);
 	} else {
-		error("Can not create file %s\n", targetfname);
+		z_log_error("Can not create file %s\n", targetfname);
 	}
 
 	free(data);
@@ -236,7 +239,7 @@ static struct bencode *get_basename(const char *fname)
 	xbasename(path, sizeof path, fname);
 	bname = ben_str(path);
 	if (bname == NULL)
-		die("Can not get basename from %s\n", fname);
+		z_die("Can not get basename from %s\n", fname);
 	return bname;
 }
 
@@ -266,9 +269,9 @@ static void record_file(struct bencode *container, const char *relname,
 			struct collection_context *context, const char *fname)
 {
 	if (uade_rmc_record_file(container, relname, data, len))
-		die("Failed to record %s into container\n", fname);
+		z_die("Failed to record %s into container\n", fname);
 	if (ben_list_append_str(context->filelist, fname))
-		die("Failed to append %s to file list\n", fname);
+		z_die("Failed to append %s to file list\n", fname);
 }
 
 struct uade_file *collect_files(const char *amiganame, const char *playerdir,
@@ -299,7 +302,7 @@ struct uade_file *collect_files(const char *amiganame, const char *playerdir,
 	}
 
 	if (memcmp(dirname, name, strlen(dirname)) != 0) {
-		warning("Ignoring file which does not have the same path "
+		z_log_warning("Ignoring file which does not have the same path "
 			"prefix as the song file. File to be loaded: %s "
 			"Song file: %s\n", name, info->modulefname);
 		return f;
@@ -322,7 +325,7 @@ struct uade_file *collect_files(const char *amiganame, const char *playerdir,
 		return f;
 	}
 
-	info("Collecting %s\n", name);
+	fprintf(stderr, "Collecting %s\n", name);
 
 	record_file(container, path, f->data, f->size,
 		    collection_context, name);
@@ -371,13 +374,16 @@ static void get_targetname(char *name, size_t maxlen, struct uade_state *state)
 	z_assert(ret >= 0 && ((size_t) ret) < maxlen);
 }
 
-static void finalize(struct bencode *container, struct uade_file *f)
+static void meta_set_song(struct bencode *container, struct uade_file *f)
 {
 	struct bencode *meta = ben_list_get(container, 1);
-	if (ben_dict_len(meta) == 1)
+	if (ben_dict_len(meta) <= 1) {
+		z_log_error("Container meta was empty. "
+			    "Not setting song name\n");
 		return;
+	}
 	if (ben_dict_set_by_str(meta, "song", get_basename(f->name)))
-		die("Can not set song name to be played\n");
+		z_die("Can not set song name to be played\n");
 }
 
 static void init_collection_context(struct collection_context *context,
@@ -389,7 +395,7 @@ static void init_collection_context(struct collection_context *context,
 	xbasename(fbasename, sizeof fbasename, f->name);
 	context->filelist = ben_list();
 	if (context->filelist == NULL)
-		die("Can not allocate memory for file collection list\n");
+		z_die("Can not allocate memory for file collection list\n");
 	record_file(container, fbasename, f->data, f->size, context, f->name);
 }
 
@@ -403,11 +409,11 @@ static int remove_collected_files(struct collection_context *context)
 		assert(ben_is_str(str));
 		fname = ben_str_val(str);
 		if (remove(fname)) {
-			warning("Unable to remove file %s: %s\n",
+			z_log_warning("Unable to remove file %s: %s\n",
 				fname, strerror(errno));
 			ret = -1;
 		} else {
-			info("Removed %s\n", fname);
+			fprintf(stderr, "Removed %s\n", fname);
 		}
 	}
 	return ret;
@@ -438,11 +444,11 @@ static int convert(struct uade_file *f, struct uade_state *state)
 
 	if (stat(targetname, &st) == 0 &&
 	    overwrite_mode == 0) {
-		info("Not overwriting file %s. Not converting file %s.\n",
+		fprintf(stderr, "Not overwriting file %s. Not converting file %s.\n",
 		     targetname, f->name);
 		goto exit;
 	}
-	debug("Converting %s to %s (%d subsongs)\n",
+	fprintf(stderr, "Converting %s to %s (%d subsongs)\n",
 	      f->name, targetname, nsubsongs);
 
 	container = create_container();
@@ -461,17 +467,18 @@ static int convert(struct uade_file *f, struct uade_state *state)
 			UADE_BYTES_PER_FRAME;
 
 		if (nsubsongs > 1)
-			info("Converting subsong %d / %d\n", cur, max);
+			fprintf(stderr, "Converting subsong %d / %d\n",
+				cur, max);
 
 		ret = uade_play_from_buffer(f->name, f->data, f->size, cur,
 					    state);
 		if (ret < 0) {
 			uade_cleanup_state(state);
-			warning("Fatal error in uade state when initializing "
-				"%s\n", f->name);
+			z_log_warning("Error in uade state when initializing "
+				      "%s\n", f->name);
 			goto error;
 		} else if (ret == 0) {
-			debug("%s is not playable\n", f->name);
+			fprintf(stderr, "%s is not playable\n", f->name);
 			goto error;
 		}
 
@@ -492,10 +499,11 @@ static int convert(struct uade_file *f, struct uade_state *state)
 	simtime = getmstime() - starttime;
 	if (simtime < 0)
 		simtime = 0;
-	info("play time %d ms, simulation time %lld ms, speedup %.1fx\n",
-	     sumtime, simtime, ((float) sumtime) / simtime);
+	fprintf(stderr, "play time %d ms, simulation time %lld ms, "
+		"speedup %.1fx\n",
+		sumtime, simtime, ((float) sumtime) / simtime);
 
-	finalize(container, f);
+	meta_set_song(container, f);
 
 	ret = write_rmc(targetname, container);
 
@@ -547,11 +555,11 @@ static void print_usage(void)
 static int directory_traverse_fn(const char *fpath, const struct stat *sb,
 				 int typeflag)
 {
-	UNUSED(sb);
+	(void) sb;
 	if (typeflag != FTW_F)
 		return 0;
 	if (ben_list_append_str(scanner_file_list, fpath))
-		die("No memory to append file %s to scanner list\n", fpath);
+		z_die("No memory to append file %s to scanner list\n", fpath);
 	return 0;
 }
 
@@ -571,23 +579,23 @@ static int put_files_into_container(int i, int argc, char *argv[])
 	assert(scanner_file_list == NULL);
 	scanner_file_list = ben_list();
 	if (scanner_file_list == NULL)
-		die("No memory for scanner file list\n");
+		z_die("No memory for scanner file list\n");
 
 	if (config == NULL)
-		die("Could not allocate memory for config\n");
+		z_die("Could not allocate memory for config\n");
 
 	initialize_config(config);
 
 	for (; i < argc; i++) {
 		struct stat st;
 		if (stat(argv[i], &st)) {
-			info("Can not stat %s. Skipping.\n", argv[i]);
+			fprintf(stderr, "Can not stat %s. Skipping.\n", argv[i]);
 			continue;
 		}
 		if (S_ISDIR(st.st_mode)) {
 			ret = ftw(argv[i], directory_traverse_fn, 500);
 			if (ret != 0)
-				die("Traversing directory %s failed\n",
+				z_die("Traversing directory %s failed\n",
 				    argv[i]);
 		} else {
 			ben_list_append_str(scanner_file_list, argv[i]);
@@ -603,7 +611,7 @@ static int put_files_into_container(int i, int argc, char *argv[])
 		}
 
 		if (uade_is_rmc(f->data, f->size)) {
-			info("Won't convert RMC again: %s\n", f->name);
+			fprintf(stderr, "Won't convert RMC again: %s\n", f->name);
 			uade_file_free(f);
 			continue;
 		}
@@ -611,17 +619,17 @@ static int put_files_into_container(int i, int argc, char *argv[])
 		if (state == NULL)
 			state = uade_new_state(config);
 		if (state == NULL)
-			die("Can not initialize uade state\n");
+			z_die("Can not initialize uade state\n");
 
 		ret = uade_play_from_buffer(f->name, f->data, f->size, -1,
 					    state);
 		if (ret < 0) {
 			uade_cleanup_state(state);
 			state = NULL;
-			error("Can not convert (play) %s\n", arg);
+			z_log_error("Can not convert (play) %s\n", arg);
 			goto nextfile;
 		} else if (ret == 0) {
-			debug("%s is not playable (convertable)\n", arg);
+			fprintf(stderr, "%s is not playable (convertable)\n", arg);
 			goto nextfile;
 		}
 
@@ -637,7 +645,7 @@ static int put_files_into_container(int i, int argc, char *argv[])
 	/* state can be NULL */
 	uade_cleanup_state(state);
 
-	free_and_null(config);
+	z_free_and_null(config);
 
 	ben_free(scanner_file_list);
 	scanner_file_list = NULL;
@@ -788,7 +796,7 @@ static int unpack_file(const char *dir, struct uade_file *f)
 	struct bencode *container;
 
 	if (!uade_is_rmc(f->data, f->size)) {
-		error("%s is not an RMC file\n", f->name);
+		z_log_error("%s is not an RMC file\n", f->name);
 		return 1;
 	}
 
@@ -803,17 +811,59 @@ static int unpack_file(const char *dir, struct uade_file *f)
 		goto cleanup;
 
 	ben_free(container);
-	info("Unpacked %s to directory %s (OK)\n", f->name, dir);
+	fprintf(stderr, "Unpacked %s to directory %s (OK)\n", f->name, dir);
 	return 0;
 
 cleanup:
 	return 1;
 }
 
-static int pack_containers(int i, int argc, char *argv[])
+static int pack_container(int i, int argc, char *argv[])
 {
-	z_die("Not implemented\n");
-	z_assert((i + 1) == argc);
+	struct bencode *container = create_container();
+	struct bencode *meta;
+	struct bencode *files;
+	char *targetname;
+	char files_dir[PATH_MAX];
+	char path[PATH_MAX];
+	void *metabytes;
+	size_t size;
+
+	z_assert(container != NULL);
+
+	if ((optind + 1) != argc) {
+		z_log_fatal("Expect rmc name as the only non-option "
+			    "argument\n");
+	}
+	targetname = argv[i];
+	z_assert(targetname != NULL);
+
+	z_snprintf_or_die(path, sizeof(path), "%s/meta", pack_dir);
+	metabytes = z_file_read(&size, path);
+	z_assert(metabytes != NULL);
+
+	meta = ben_decode_printed(metabytes, size);
+	z_assert(meta != NULL);
+	ben_list_set(container, 1, meta);
+
+	z_snprintf_or_die(files_dir, sizeof(files_dir), "%s/files", pack_dir);
+	files = ben_list_get(container, 2);
+	struct str_array *names = z_list_dir(files_dir);
+	struct str_array_iter iter;
+	z_assert(names != NULL);
+	z_array_for_each(str_array, names, &iter) {
+		z_snprintf_or_die(path, sizeof(path),
+				  "%s/%s", files_dir, iter.value);
+		void *filebytes = z_file_read(&size, path);
+		z_assert(filebytes != NULL);
+		struct bencode *benbytes = ben_blob(filebytes, size);
+		z_assert(benbytes != NULL);
+		z_assert(ben_dict_set_by_str(files, iter.value,
+					     benbytes) == 0);
+	}
+	str_array_free_all(names);
+
+	return write_rmc(targetname, container);
 }
 
 static int unpack_container(int i, int argc, char *argv[])
@@ -822,9 +872,12 @@ static int unpack_container(int i, int argc, char *argv[])
 	struct uade_file *f;
 
 	if (recursive_mode)
-		die("Recursive mode is not yet implemented for unpacking.");
+		z_die("Recursive mode is not yet implemented for unpacking.");
 
-	z_assert((i + 1) == argc);
+	if ((i + 1) != argc) {
+		z_log_fatal("Expect rmc name as the only non-option "
+			    "argument\n");
+	}
 
 	f = uade_file_load(argv[i]);
 	if (f == NULL) {
@@ -853,7 +906,7 @@ int main(int argc, char *argv[])
 	operation = put_files_into_container;
 
 	while (1) {
-		ret = getopt(argc, argv, "dhnru:w:");
+		ret = getopt(argc, argv, "dhnp:ru:w:");
 		if (ret  < 0)
 			break;
 		switch (ret) {
@@ -867,7 +920,7 @@ int main(int argc, char *argv[])
 			overwrite_mode = 0;
 			break;
 		case 'p':
-			operation = pack_containers;
+			operation = pack_container;
 			size = strlcpy(pack_dir, optarg, sizeof(pack_dir));
 			z_assert(size < sizeof(pack_dir));
 			z_assert(strlen(pack_dir) > 0);
@@ -886,10 +939,10 @@ int main(int argc, char *argv[])
 			/* Set subsong timeout */
 			subsong_timeout = strtol(optarg, &end, 10);
 			if (*end != 0)
-				die("Invalid timeout: %s\n", optarg);
+				z_die("Invalid timeout: %s\n", optarg);
 			break;
 		default:
-			die("Unknown option: %c\n", optopt);
+			z_die("Unknown option: %c\n", optopt);
 		}
 	}
 

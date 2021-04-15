@@ -3,15 +3,14 @@ CFLAGS = -W -Wall -O2 -g {CFLAGS} -Ilibzakalwe/include
 LDFLAGS = {LDFLAGS}
 PREFIX = {PREFIX}
 
-RMCMODULES = rmc.o utils.o libzakalwe/static_pack.o
+RMCMODULES = rmc.o libzakalwe/static_pack.o
 
 all:	rmc
 
 rmc:	$(RMCMODULES)
 	$(CC) $(LDFLAGS) -o $@ $(RMCMODULES) -luade -lbencodetools -lm
 
-rmc.o:	rmc.c utils.h
-utils.o:	utils.c utils.h
+rmc.o:	rmc.c
 
 libzakalwe/static_pack.o:
 	@echo
@@ -31,3 +30,6 @@ clean:
 
 install:	
 	install rmc "$(PREFIX)/bin/"
+
+test:	rmc
+	./test.sh
