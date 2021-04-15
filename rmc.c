@@ -248,7 +248,7 @@ static void set_info(struct bencode *meta, struct uade_state *state)
 	const struct uade_song_info *info = uade_get_song_info(state);
 	const char *formatname = NULL;
 	if (info->detectioninfo.custom) {
-		formatname = "custom";
+		formatname = "Custom";
 	} else {
 		formatname = info->formatname;
 	}
