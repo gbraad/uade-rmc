@@ -67,13 +67,15 @@ static void set_str_by_str(struct bencode *d, const char *key,
 {
 	char latin1[4096];
 	char utf8[4096];
-	size_t inbytesleft = strlcpy(latin1, value, sizeof(latin1));
+	size_t ret = strlcpy(latin1, value, sizeof(latin1));
+	// The size returned by strlcpy() does not contain the terminating '\0'
+	size_t inbytesleft = ret + 1;
 	size_t outbytesleft = sizeof(utf8);
 	char *in = latin1;
 	char *out = utf8;
-	z_assert(inbytesleft < sizeof(latin1));
+	z_assert(ret < sizeof(latin1));
 
-	size_t ret = iconv(iconv_cd, &in, &inbytesleft, &out, &outbytesleft);
+	ret = iconv(iconv_cd, &in, &inbytesleft, &out, &outbytesleft);
 	if (ret == ((size_t) -1))
 		z_die("Characted encoding error: %s\n", strerror(errno));
 
@@ -262,6 +264,15 @@ static void set_info(struct bencode *meta, struct uade_state *state)
 
 	if (strlen(info->modulename) > 0)
 		set_str_by_str(meta, "title", info->modulename);
+
+	const struct uade_ext_to_format_version *etf = (
+		uade_file_ext_to_format_version(&info->detectioninfo));
+
+	if (etf != NULL) {
+		set_str_by_str(meta, "format", etf->format);
+		if (etf->version != NULL)
+			set_str_by_str(meta, "format_version", etf->version);
+	}
 }
 
 static void record_file(struct bencode *container, const char *relname,
