@@ -1,83 +1,85 @@
 import argparse
-import ast
 import bencode
 import hashlib
-import os
-import subprocess
-import tempfile
 from typevalidator import validate2, OPTIONAL_KEY, ONE_OR_MORE
+
+import file_util
 
 
 META_MAX_SIZE = 4096
 
 META_FORMAT = {
-    'platform': 'amiga',
-    'subsongs': {int: int},  # length in milliseconds
-    OPTIONAL_KEY('format'): str,
-    OPTIONAL_KEY('title'): str,
-    OPTIONAL_KEY('authors'): [ONE_OR_MORE, str],
-    OPTIONAL_KEY('year'): int,
-    OPTIONAL_KEY('song'): bytes,
-    OPTIONAL_KEY('comment'): str,
+    b'platform': b'amiga',
+    b'subsongs': {int: int},  # length in milliseconds
+    OPTIONAL_KEY(b'format'): bytes,
+    OPTIONAL_KEY(b'title'): bytes,
+    OPTIONAL_KEY(b'authors'): [ONE_OR_MORE, bytes],
+    OPTIONAL_KEY(b'year'): bytes,
+    OPTIONAL_KEY(b'song'): bytes,
+    OPTIONAL_KEY(b'comment'): bytes,
 
     # Amiga specific
-    OPTIONAL_KEY('player'): bytes,
-    OPTIONAL_KEY('timer'): str,
+    OPTIONAL_KEY(b'player'): bytes,
+    OPTIONAL_KEY(b'timer'): bytes,
     }
 
-RMC_FORMAT = [bytes, META_FORMAT, dict]
+FILES_FORMAT = {bytes: bytes}
 
 
-def _modland_check(fname, rmc_meta, rmc_files, md5_to_meta):
-    changed = False
+class RMC:
+    def __init__(self, data: bytes = None):
+        assert data is not None
+        self.data = data
+        self.li = bencode.bdecode(self.data)
+        assert len(self.li) >= 3
+        assert self.li[0] == b'rmc\x00\xfb\x13\xf6\x1f\xa2'
+        self.validate()
+
+    def validate(self):
+        validate2(META_FORMAT, self.li[1])
+        validate2(FILES_FORMAT, self.li[2])
+
+    def get_meta(self):
+        return self.li[1]
+
+    def get_files(self):
+        return self.li[2]
+
+    def serialize(self):
+        return bencode.bencode(self.li)
+
+
+def _modland_check(fname, rmc, md5_to_meta):
     md5 = hashlib.md5()
-    song_name = rmc_meta['song']
+    rmc_meta = rmc.get_meta()
+    rmc_files = rmc.get_files()
+    song_name = rmc_meta[b'song']
     song_bytes = rmc_files[song_name]
     assert isinstance(song_bytes, bytes)
     md5.update(song_bytes)
     digest = md5.hexdigest()
     modland_meta = md5_to_meta.get(digest)
     if modland_meta is not None:
-        print(fname, modland_meta)
         modland_authors = modland_meta[2]
-        if rmc_meta.get('authors', []) != modland_authors:
-            rmc_meta['authors'] = list(modland_authors)
-            changed = True
-
-    return changed
+        if rmc_meta.get(b'authors') is None and len(modland_authors) > 0:
+            rmc_meta[b'authors'] = list(modland_authors)
 
 
 def _process(fname, md5_to_meta):
-    temp_dir = tempfile.TemporaryDirectory()
     with open(fname, 'rb') as f:
         data = f.read()
-        cp = subprocess.run(['rmc', '-u', temp_dir.name, fname])
-        assert cp.returncode == 0
-        meta_name = os.path.join(temp_dir.name, 'meta')
-        data = open(meta_name, 'rb').read()
-        try:
-            data = data.decode()
-        except UnicodeDecodeError:
-            print(fname, 'meta data can not be decoded into utf-8')
-            return False
-        try:
-            meta = ast.literal_eval(data)
-        except SyntaxError:  # Really!
-            print(meta_name, 'is not in Python AST format')
-            return False
-        validate2(META_FORMAT, meta)
+        rmc = RMC(data)
 
-    files = {}
-    files_dir = os.path.join(temp_dir.name, 'files')
-    for objectbasename in os.listdir(files_dir):
-        objectpathname = os.path.join(files_dir, objectbasename)
-        files[objectbasename] = open(objectpathname, 'rb').read()
+    _modland_check(fname, rmc, md5_to_meta)
+    rmc.validate()
 
-    if _modland_check(fname, meta, files, md5_to_meta):
-        validate2(META_FORMAT, meta)
-        print('meta changed', meta)
+    assert len(bencode.bencode(rmc.get_meta())) < META_MAX_SIZE
 
-    assert len(bencode.bencode(meta)) < META_MAX_SIZE
+    new_data = rmc.serialize()
+    if new_data != data:
+        with file_util.AtomicReplacement(fname, 'wb') as f:
+            print('Data changed', rmc.get_meta())
+            f.write(new_data)
 
     return True
 
@@ -96,9 +98,11 @@ def _parse_md5(fname):
                 if author == '- unknown':
                     continue
                 if author.startswith('coop-'):
-                    authors.append(author[5:])
+                    author = author[5:]
+                    if author != 'Unknown':
+                        authors.append(author.encode())
                 else:
-                    authors.append(author)
+                    authors.append(author.encode())
             md5_to_meta[md5] = (modfname, mod_format, authors)
     return md5_to_meta
 
