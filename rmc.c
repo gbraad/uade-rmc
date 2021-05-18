@@ -167,7 +167,8 @@ static void set_playtime(struct bencode *container, int sub, int playtime)
 	fprintf(stderr, "Subsong %d: %.3fs\n", sub, playtime / 1000.0);
 }
 
-static void print_dict_keys(const struct bencode *files, const char *oldprefix)
+static void print_dict_keys(FILE *f, const struct bencode *files,
+			    const char *oldprefix)
 {
 	size_t pos;
 	struct bencode *key;
@@ -177,9 +178,9 @@ static void print_dict_keys(const struct bencode *files, const char *oldprefix)
 	ben_dict_for_each(key, value, pos, files) {
 		if (ben_is_dict(value)) {
 			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix, ben_str_val(key));
-			print_dict_keys(value, prefix);
+			print_dict_keys(f, value, prefix);
 		} else {
-			fprintf(stderr, "%s%s ", oldprefix, ben_str_val(key));
+			fprintf(f, "%s%s ", oldprefix, ben_str_val(key));
 		}
 	}
 }
@@ -193,11 +194,11 @@ static int write_rmc(const char *targetfname, const struct bencode *container)
 	int ret = -1;
 	char *metastring = ben_print(ben_list_get(container, 1));
 
-	fprintf(stderr, "meta: %s files: ", metastring);
+	fprintf(stdout, "meta: %s files: ", metastring);
 	z_free_and_null(metastring);
 
-	print_dict_keys(files, "");
-	fprintf(stderr, "\n");
+	print_dict_keys(stdout, files, "");
+	fprintf(stdout, "\n");
 
 	data = ben_encode(&len, container);
 	if (data == NULL)
