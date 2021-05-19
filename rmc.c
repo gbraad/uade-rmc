@@ -24,6 +24,7 @@ static int subsong_timeout = 512;
 static int delete_after_packing = 0;
 static int recursive_mode = 0;
 static int overwrite_mode = 1;
+static int repack_mode = 0;
 
 static struct bencode *scanner_file_list;
 
@@ -455,8 +456,9 @@ static int convert(struct uade_file *f, struct uade_state *state)
 
 	if (stat(targetname, &st) == 0 &&
 	    overwrite_mode == 0) {
-		fprintf(stderr, "Not overwriting file %s. Not converting file %s.\n",
-		     targetname, f->name);
+		fprintf(stderr,
+			"Not overwriting file %s. Not converting file %s.\n",
+			targetname, f->name);
 		goto exit;
 	}
 	fprintf(stderr, "Converting %s to %s (%d subsongs)\n",
@@ -585,6 +587,15 @@ static int directory_traverse_fn(const char *fpath, const struct stat *sb,
 	return 0;
 }
 
+void repack_container(const char *path)
+{
+	char *repack_dir = z_mkdtemp(NULL);
+	z_assert(repack_dir != NULL);
+
+	z_assert(z_rmdir_recursively(repack_dir));
+	free(repack_dir);
+}
+
 static int put_files_into_container(int i, int argc, char *argv[],
 				    char *_unused)
 {
@@ -614,7 +625,8 @@ static int put_files_into_container(int i, int argc, char *argv[],
 	for (; i < argc; i++) {
 		struct stat st;
 		if (stat(argv[i], &st)) {
-			fprintf(stderr, "Can not stat %s. Skipping.\n", argv[i]);
+			fprintf(stderr, "Can not stat %s. Skipping.\n",
+				argv[i]);
 			continue;
 		}
 		if (S_ISDIR(st.st_mode)) {
@@ -636,7 +648,12 @@ static int put_files_into_container(int i, int argc, char *argv[],
 		}
 
 		if (uade_is_rmc(f->data, f->size)) {
-			fprintf(stderr, "Won't convert RMC again: %s\n", f->name);
+			if (repack_mode) {
+				repack_container(arg);
+				z_die("repack not implemented\n");
+			}
+			fprintf(stderr, "Won't convert RMC again: %s\n",
+				f->name);
 			uade_file_free(f);
 			continue;
 		}
@@ -938,16 +955,31 @@ int main(int argc, char *argv[])
 	size_t size;
 	char path[PATH_MAX];
 
+	int option_index = 0;
+	const struct option long_options[] = {
+		{"repack", no_argument, 0, 0},
+		{0, 0, 0, 0},
+	};
+
 	iconv_cd = iconv_open("utf-8", "iso-8859-1");
 	z_assert((size_t) iconv_cd != ((size_t) -1));
 
 	operation = put_files_into_container;
 
 	while (1) {
-		ret = getopt(argc, argv, "dhnp:ru:w:");
+		ret = getopt_long(argc, argv, "dhnp:ru:w:", long_options,
+				  &option_index);
 		if (ret  < 0)
 			break;
 		switch (ret) {
+		case 0:
+			if (option_index == 0) {
+				repack_mode = 1;
+			} else {
+				z_die("Invalid option_index %d\n",
+				      option_index);
+			}
+			break;
 		case 'd':
 			delete_after_packing = 1;
 			break;

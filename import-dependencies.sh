@@ -1,7 +1,7 @@
 #!/bin/bash
 
 libzakalweurl="https://gitlab.com/hors/libzakalwe"
-libzakalwehead="ac84680f86aea88c9219d6be7482916e83fff0c7"
+libzakalwehead="c665316a9dfd5a17c1b56b8979af5f5cb7b4335e"
 
 rm -rf libzakalwe
 while true ; do
