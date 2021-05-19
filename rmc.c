@@ -24,8 +24,6 @@ static int subsong_timeout = 512;
 static int delete_after_packing = 0;
 static int recursive_mode = 0;
 static int overwrite_mode = 1;
-static char pack_dir[PATH_MAX];
-static char unpack_dir[PATH_MAX];
 
 static struct bencode *scanner_file_list;
 
@@ -177,7 +175,8 @@ static void print_dict_keys(FILE *f, const struct bencode *files,
 
 	ben_dict_for_each(key, value, pos, files) {
 		if (ben_is_dict(value)) {
-			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix, ben_str_val(key));
+			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix,
+				 ben_str_val(key));
 			print_dict_keys(f, value, prefix);
 		} else {
 			fprintf(f, "%s%s ", oldprefix, ben_str_val(key));
@@ -559,8 +558,19 @@ static void print_usage(void)
 "-n      Do not overwrite an existing rmc file. This can be used for\n"
 "        incremental conversion of directories.\n"
 "-r      Scan given directories recursively and process everything.\n"
-"-u      Unpack mode: unpack RMC files into meta and song files.\n"
+"-u dir  Unpack mode: unpack RMC meta and song files to the given directory.\n"
 "-w t    Set subsong timeout to be t seconds.\n"
+"\n"
+"Pack fc14.arcane-theme into arcane-theme.rmc:\n"
+"\n"
+"$ rmc fc14.arcane-theme\n"
+"\n"
+
+"\n"
+"Unpack arcane-theme.rmc into tmp/files/fc14.arcane-theme:\n"
+"\n"
+"$ mkdir tmp\n"
+"$ rmc -u tmp arcane-theme.rmc\n"
 		);
 }
 
@@ -575,7 +585,8 @@ static int directory_traverse_fn(const char *fpath, const struct stat *sb,
 	return 0;
 }
 
-static int put_files_into_container(int i, int argc, char *argv[])
+static int put_files_into_container(int i, int argc, char *argv[],
+				    char *_unused)
 {
 	int ret;
 	struct uade_state *state = NULL;
@@ -583,6 +594,8 @@ static int put_files_into_container(int i, int argc, char *argv[])
 	struct uade_config *config = uade_new_config();
 	size_t pos;
 	struct bencode *benarg;
+
+	(void) _unused;
 
 	/*
 	 * Use a global variable because ftw() call does not allow an opaque
@@ -681,7 +694,8 @@ static struct bencode *get_container(struct uade_file *f)
 
 	if (!ben_is_dict(ben_list_get(container, 1)) ||
 	    !ben_is_dict(ben_list_get(container, 2))) {
-		z_log_error("Either meta or files is not a dictionary: %s\n", f->name);
+		z_log_error("Either meta or files is not a dictionary: %s\n",
+			    f->name);
 		goto err;
 	}
 
@@ -713,7 +727,8 @@ static int unpack_meta(const char *dirname, struct bencode *container)
 	}
 
 	if (xfwrite(metastring, strlen(metastring), 1, f) != 1) {
-		z_log_error("Write error to meta file %s (%s)\n", metaname, strerror(errno));
+		z_log_error("Write error to meta file %s (%s)\n",
+			    metaname, strerror(errno));
 		goto err;
 	}
 
@@ -729,7 +744,8 @@ err:
 
 }
 
-static int scan_and_write_files(const struct bencode *files, const char *oldprefix)
+static int scan_and_write_files(const struct bencode *files,
+				const char *oldprefix)
 {
 	size_t pos;
 	struct bencode *key;
@@ -750,9 +766,12 @@ static int scan_and_write_files(const struct bencode *files, const char *oldpref
 		}
 
 		if (ben_is_dict(value)) {
-			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix, ben_str_val(key));
+			snprintf(prefix, sizeof prefix, "%s%s/", oldprefix,
+				 ben_str_val(key));
 			if (mkdir(prefix, 0700)) {
-				z_log_error("Unable to create directory %s (%s)\n", prefix, strerror(errno));
+				z_log_error("Unable to create directory "
+					    "%s (%s)\n",
+					    prefix, strerror(errno));
 				return 1;
 			}
 			if (scan_and_write_files(value, prefix))
@@ -761,17 +780,21 @@ static int scan_and_write_files(const struct bencode *files, const char *oldpref
 		}
 
 		if (!ben_is_str(value)) {
-			z_log_error("Invalid file content: %s\n", ben_str_val(key));
+			z_log_error("Invalid file content: %s\n",
+				    ben_str_val(key));
 			return 1;
 		}
-		snprintf(prefix, sizeof prefix, "%s%s", oldprefix, ben_str_val(key));
+		snprintf(prefix, sizeof prefix, "%s%s",
+			 oldprefix, ben_str_val(key));
 		f = fopen(prefix, "wb");
 		if (f == NULL) {
 			z_log_error("Can not write file");
 			return 1;
 		}
-		if (xfwrite(ben_str_val(value), ben_str_len(value), 1, f) != 1) {
-			z_log_error("Unable to write to file: %s (%s)\n", prefix, strerror(errno));
+		if (xfwrite(ben_str_val(value), ben_str_len(value), 1,
+			    f) != 1) {
+			z_log_error("Unable to write to file: %s (%s)\n",
+				    prefix, strerror(errno));
 			fclose(f);
 			return 1;
 		}
@@ -792,9 +815,11 @@ static int unpack_files(const char *dirname, struct bencode *container)
 	z_assert(ret >= 0 && ((size_t) ret) < sizeof(prefix));
 
 	if (mkdir(prefix, 0700)) {
-		z_log_error("Unable to create directory %s (%s)\n",
-			    prefix, strerror(errno));
-		return -1;
+		if (errno != EEXIST) {
+			z_log_error("Unable to create directory %s (%s)\n",
+				    prefix, strerror(errno));
+			return -1;
+		}
 	}
 	if (scan_and_write_files(files, prefix)) {
 		z_log_error("Can not unpack RMC to %s\n", dirname);
@@ -830,7 +855,7 @@ cleanup:
 	return 1;
 }
 
-static int pack_container(int i, int argc, char *argv[])
+static int pack_container(int i, int argc, char *argv[], char *pack_dir)
 {
 	struct bencode *container = create_container();
 	struct bencode *meta;
@@ -843,7 +868,7 @@ static int pack_container(int i, int argc, char *argv[])
 
 	z_assert(container != NULL);
 
-	if ((optind + 1) != argc) {
+	if ((i + 1) != argc) {
 		z_log_fatal("Expect rmc name as the only non-option "
 			    "argument\n");
 	}
@@ -878,7 +903,7 @@ static int pack_container(int i, int argc, char *argv[])
 	return write_rmc(targetname, container);
 }
 
-static int unpack_container(int i, int argc, char *argv[])
+static int unpack_container(int i, int argc, char *argv[], char *unpack_dir)
 {
 	int exitval = 0;
 	struct uade_file *f;
@@ -909,8 +934,9 @@ int main(int argc, char *argv[])
 {
 	char *end;
 	int ret;
-	int (*operation)(int i, int argc, char *argv[]);
+	int (*operation)(int i, int argc, char *argv[], char *);
 	size_t size;
+	char path[PATH_MAX];
 
 	iconv_cd = iconv_open("utf-8", "iso-8859-1");
 	z_assert((size_t) iconv_cd != ((size_t) -1));
@@ -933,9 +959,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'p':
 			operation = pack_container;
-			size = strlcpy(pack_dir, optarg, sizeof(pack_dir));
-			z_assert(size < sizeof(pack_dir));
-			z_assert(strlen(pack_dir) > 0);
+			size = strlcpy(path, optarg, sizeof(path));
+			z_assert(size < sizeof(path));
+			z_assert(strlen(path) > 0);
 			break;
 		case 'r':
 			recursive_mode = 1;
@@ -943,9 +969,9 @@ int main(int argc, char *argv[])
 		case 'u':
 			/* Unpack rmc file */
 			operation = unpack_container;
-			size = strlcpy(unpack_dir, optarg, sizeof(unpack_dir));
-			z_assert(size < sizeof(unpack_dir));
-			z_assert(strlen(unpack_dir) > 0);
+			size = strlcpy(path, optarg, sizeof(path));
+			z_assert(size < sizeof(path));
+			z_assert(strlen(path) > 0);
 			break;
 		case 'w':
 			/* Set subsong timeout */
@@ -958,5 +984,5 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	return operation(optind, argc, argv);
+	return operation(optind, argc, argv, path);
 }
