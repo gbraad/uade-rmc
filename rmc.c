@@ -954,7 +954,7 @@ int main(int argc, char *argv[])
 				z_die("Invalid timeout: %s\n", optarg);
 			break;
 		default:
-			z_die("Unknown option: %c\n", optopt);
+			exit(1);
 		}
 	}
 
