@@ -298,9 +298,12 @@ struct uade_file *collect_files(const char *amiganame, const char *playerdir,
 	struct bencode *container = collection_context->container;
 	struct uade_file *oldfile;
 	struct uade_file *f = uade_load_amiga_file(amiganame, playerdir, state);
-	const char *name = f->name;
+	const char *name;
+
 	if (f == NULL)
 		return NULL;
+
+	name = f->name;
 
 	/* Do not collect file names with ':' (for example, ENV:Foo) */
 	separator = strchr(name, ':');
