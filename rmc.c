@@ -589,6 +589,7 @@ static int directory_traverse_fn(const char *fpath, const struct stat *sb,
 
 void repack_container(const char *path)
 {
+	(void) path;
 	char *repack_dir = z_mkdtemp(NULL);
 	z_assert(repack_dir != NULL);
 
@@ -957,6 +958,7 @@ int main(int argc, char *argv[])
 
 	int option_index = 0;
 	const struct option long_options[] = {
+		{"help", no_argument, 0, 'h'},
 		{"repack", no_argument, 0, 0},
 		{0, 0, 0, 0},
 	};
